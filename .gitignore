@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+env/
+venv/
+.env
+*.log
+*.pot
+*.pyc
+*.pyo
+*.pyd
+
+# Dados
+data/
+models/
+cache/
+logs/
+reports/
+backups/
+*.pkl
+*.h5
+*.joblib
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Secrets
+*.key
+*.pem
+*.crt
+*.cert
+secrets/
+
+# Trading
+credentials.json
+mt5_config.json
+
+# Build
+build/
+dist/
+*.egg-info/
+*.egg
