@@ -319,11 +319,38 @@ class JLMLModels:
         # 1. Previsão dos modelos estáticos
         for name, model in self.models[symbol].items():
             try:
-                # Garantir formato 2D
+                # Determinar formato de entrada correto
+                # Modelos "aggressive" ou ExtraTrees/XGBoost básicos esperam 1 bar (n_features)
+                # Modelos MDP/LSTM esperam lookback (lookback * n_features)
+                
+                n_features_total = X.reshape(X.shape[0], -1).shape[1]
+                
+                # Se X for 3D (batch, lookback, features), pegamos a última bar para modelos single-bar
                 if len(X.shape) == 3:
-                    X_input = X.reshape(X.shape[0], -1)
+                    X_single_bar = X[:, -1, :] # Última bar: (batch, n_features)
+                    X_flattened = X.reshape(X.shape[0], -1) # Flattened: (batch, lookback * n_features)
                 else:
-                    X_input = X
+                    X_single_bar = X
+                    X_flattened = X
+
+                # Tenta detectar qual entrada o modelo espera
+                if hasattr(model, "n_features_in_"):
+                    expected = model.n_features_in_
+                    if expected == X_single_bar.shape[1]:
+                        X_input = X_single_bar
+                    elif expected == 6 and X_single_bar.shape[1] == 43:
+                        # Caso especial: modelo robusto (6) com entrada completa (43)
+                        # As features robustas estão em posições específicas
+                        from aggressive_feature_compatibility import AggressiveFeatureCompatibility
+                        compat = AggressiveFeatureCompatibility()
+                        robust_indices = [compat.all_features.index(f) for f in compat.robust_features]
+                        X_input = X_single_bar[:, robust_indices]
+                    else:
+                        X_input = X_flattened
+                elif "aggressive" in name.lower():
+                    X_input = X_single_bar
+                else:
+                    X_input = X_flattened
 
                 # Aplicar scaler se existir
                 if (name in ('mlp', 'mlp_eurusd', 'mlp_xauusd') or "aggressive" in name) and self.scalers.get(symbol):

@@ -99,6 +99,11 @@ class ModelPerformanceTracker:
         with self.lock:
             return self.model_weights.copy()
 
+    def get_model_weight(self, symbol: str, model_name: str) -> float:
+        """Retorna o peso de um modelo específico"""
+        with self.lock:
+            return self.model_weights.get(model_name, 1.0)
+
 class ContinuousLearner:
     """Sistema de aprendizado contínuo"""
     

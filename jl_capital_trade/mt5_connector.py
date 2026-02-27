@@ -152,11 +152,14 @@ class MT5Connector:
             
             df = pd.DataFrame(rates)
             df['time'] = pd.to_datetime(df['time'], unit='s')
-            df.set_index('time', inplace=True)
             
-            # Renomeia colunas
-            df.columns = ['open', 'high', 'low', 'close', 'volume', 
-                         'spread', 'real_volume']
+            # Garante que tick_volume e volume coexistam (MT5 usa tick_volume)
+            if 'tick_volume' in df.columns:
+                df['volume'] = df['tick_volume']
+            elif 'volume' in df.columns:
+                df['tick_volume'] = df['volume']
+            
+            df.set_index('time', inplace=True)
             
             logger.info(f"✅ Got {len(df)} candles for {symbol}")
             return df

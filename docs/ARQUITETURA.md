@@ -76,19 +76,20 @@ Para garantir que a estratégia seja lucrativa após todas as taxas, o sistema s
 ## 🛡️ Camadas de Proteção de Execução
 
 O sistema implementa proteções de "última milha" para garantir a integridade de cada trade:
-- **Heartbeat Monitor**: Uma thread dedicada monitora a conexão com o terminal MT5 a cada 1 segundo. Se a conexão for perdida, o bot entra em modo de segurança imediatamente e tenta reconectar.
+- **Heartbeat Monitor**: Uma thread dedicada monitora a conexão com o terminal MT5 a cada 1 segundo. Se a conexão for perdida, o bot entra em modo de segurança imediatamente e tenta reconectar automaticamente.
 - **Verificação Interna de Spread**: Antes de enviar a ordem ao mercado, o conector valida o spread bid/ask real. Se exceder o limite (ex: 1.5 pips para EURUSD), a ordem é cancelada mesmo que o bot tenha autorizado.
 - **Monitoramento de Slippage Real**: Após cada execução, o sistema calcula a diferença entre o preço solicitado e o executado. Slippages acima de 1.5 pips disparam um Circuit Breaker.
-- **Auditoria de Feature Leakage**: O pipeline de dados foi auditado para garantir que indicadores técnicos usem apenas dados passados (`shift(1)`), eliminando o risco de indicadores "re-pintarem" ou usarem dados do futuro.
+- **Paridade de Dados**: O conector garante a compatibilidade entre os nomes de colunas do MetaTrader 5 (`tick_volume`) e os requeridos pelos modelos legados e novos.
 
 ## 🧠 Inteligência Adaptativa e Aprendizado Online
 
 Além do retreino periódico, o sistema evolui em tempo real:
-- **Online Learning (SGD)**: Um modelo `SGDClassifier` aprende com o resultado de cada trade individualmente via `partial_fit`. Isso permite que o sistema se adapte a mudanças de regime de mercado em minutos, não em horas.
+- **Online Learning (SGD)**: Um modelo `SGDClassifier` aprende com o resultado de cada trade individualmente via `partial_fit`. Isso permite que o sistema se adapte a mudanças de regime de mercado em minutos.
 - **Regime-Aware Ensemble**: O peso dos modelos no ensemble é ajustado dinamicamente:
     - Em regimes de **Tendência**, o modelo XGBoost recebe maior peso.
     - Em regimes de **Lateralização (Range)**, o modelo MLP/ExtraTrees é favorecido.
-- **Filtro de Probabilidade de 75%**: O sistema exige alta convergência estatística para operar, ignorando sinais de baixa confiança.
+- **Filtro de Probabilidade de 73%**: Calibrado para buscar uma acurácia real de **70-75%** no longo prazo, equilibrando seletividade e frequência de trades.
+- **Multi-Timeframe (MTF) Alignment**: Sinais de H1 são automaticamente bloqueados se estiverem contra a tendência principal do H4.
 
 ## 📰 Filtro de Notícias Econômicas
 

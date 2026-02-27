@@ -141,6 +141,12 @@ class DataCollector:
     def calculate_indicators(self, df: pd.DataFrame, symbol: str) -> pd.DataFrame:
         """Calcula todos os indicadores, incluindo os robustos"""
         
+        # Garante paridade de nomes de volume (tick_volume vs volume)
+        if 'tick_volume' in df.columns and 'volume' not in df.columns:
+            df['volume'] = df['tick_volume']
+        elif 'volume' in df.columns and 'tick_volume' not in df.columns:
+            df['tick_volume'] = df['volume']
+            
         # RSI
         df['rsi'] = self._calculate_rsi(df['close'], 14)
         

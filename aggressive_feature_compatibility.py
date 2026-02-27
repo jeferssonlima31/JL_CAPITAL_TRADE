@@ -13,9 +13,21 @@ logger = logging.getLogger(__name__)
 class AggressiveFeatureCompatibility:
     def __init__(self):
         # Features ROBUSTAS selecionadas para evitar overfitting (6 features)
-        self.required_features = [
+        self.robust_features = [
             'ma_50', 'ma_100', 'ma_200', 'volatility_20', 'volatility_50', 'bb_std'
         ]
+        # Conjunto completo original (43 features)
+        self.all_features = [
+            'open', 'high', 'low', 'close', 'tick_volume', 'spread', 'real_volume', 
+            'hour', 'day_of_week', 'is_london', 'is_usa', 'is_overlay', 'returns', 
+            'log_returns', 'ma_5', 'ma_10', 'ma_20', 'ma_50', 'ma_100', 'ma_200', 
+            'momentum_5', 'momentum_10', 'roc_5', 'roc_10', 'volatility_20', 
+            'volatility_50', 'rsi_7', 'rsi_14', 'rsi_21', 'macd_12_26', 
+            'macd_signal_12_26', 'macd_8_17', 'macd_signal_8_17', 'macd_5_35', 
+            'macd_signal_5_35', 'bb_middle', 'bb_std', 'bb_upper', 'bb_lower', 
+            'bb_width', 'bb_position', 'volume_ma_ratio', 'volume_roc'
+        ]
+        self.required_features = self.all_features # Mantém compatibilidade
     
     def convert_to_aggressive_format(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -41,15 +53,26 @@ class AggressiveFeatureCompatibility:
         """Calcula todas as 43 features"""
         
         # Features de Tempo/Sessão
+        # Se 'time' for o index ou coluna
+        time_data = None
         if 'time' in df.columns:
-            df['time_dt'] = pd.to_datetime(df['time'], unit='s')
+            time_data = df['time']
+        elif df.index.name == 'time' or isinstance(df.index, pd.DatetimeIndex):
+            time_data = df.index
+            
+        if time_data is not None:
+            df['time_dt'] = pd.to_datetime(time_data, unit='s') if not isinstance(time_data, pd.DatetimeIndex) else time_data
             df['hour'] = df['time_dt'].dt.hour
             df['day_of_week'] = df['time_dt'].dt.dayofweek
             
             # Sessões (Horário de Portugal)
             df['is_london'] = ((df['hour'] >= 8) & (df['hour'] < 17)).astype(int)
             df['is_usa'] = ((df['hour'] >= 13) & (df['hour'] < 22)).astype(int)
-            df['is_overlay'] = (df['is_london'] & df['is_usa']).astype(int)
+            df['is_overlay'] = ((df['is_london'] == 1) & (df['is_usa'] == 1)).astype(int)
+        else:
+            # Fallback se não houver tempo (não deve ocorrer com MT5)
+            for col in ['hour', 'day_of_week', 'is_london', 'is_usa', 'is_overlay']:
+                df[col] = 0
         
         # Features básicas
         for col in ['real_volume', 'spread']:
