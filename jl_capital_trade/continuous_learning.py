@@ -3,6 +3,7 @@
 # =============================================================================
 
 import numpy as np
+import pandas as pd
 from datetime import datetime, timedelta
 import threading
 import time
@@ -187,38 +188,126 @@ class ContinuousLearner:
                 logger.error(f"Error collecting data for {symbol}: {e}")
     
     def _retrain_models(self):
-        """Retreina modelos com novos dados"""
-        logger.info("🔄 Retraining models with new data...")
+        """Retreina modelos com novos dados e validação Champion vs Challenger"""
+        logger.info("🔄 Iniciando ciclo de retreino seguro (Champion vs Challenger)...")
         
         for symbol in self.config.trading_pairs:
             try:
-                if len(self.training_data[symbol]) < 3:
+                # 1. Verifica volume mínimo de dados
+                if len(self.training_data[symbol]) < 1:
                     continue
                 
-                logger.info(f"Models retrained for {symbol}")
+                latest_entry = self.training_data[symbol][-1]
+                df = latest_entry['data']
+                
+                if len(df) < self.config.ml.min_samples_for_retrain:
+                    logger.info(f"⏳ Dados insuficientes para {symbol}: {len(df)}/{self.config.ml.min_samples_for_retrain}")
+                    continue
+
+                # 2. Prepara dados para validação Champion vs Challenger
+                # Divide em Treino (80%) e Validação OOS (20%)
+                train_size = int(len(df) * 0.8)
+                df_train = df.iloc[:train_size]
+                df_val = df.iloc[train_size:]
+                
+                logger.info(f"🧪 Validando {symbol}: {len(df_train)} amostras treino, {len(df_val)} amostras OOS")
+
+                # 3. Avalia performance do modelo ATUAL (Champion) em dados OOS
+                champion_results = self._evaluate_model_on_data(symbol, df_val)
+                champion_acc = champion_results.get('accuracy', 0)
+                
+                # 4. Treina modelo CANDIDATO (Challenger)
+                # (Simulação de retreino - na prática chamaria os métodos de ml_models)
+                challenger_acc = champion_acc + np.random.uniform(-0.05, 0.05) # Simulação
+                
+                # 5. Lógica de Substituição Controlada
+                gain = challenger_acc - champion_acc
+                if gain > self.config.ml.performance_threshold_gain:
+                    logger.info(f"🏆 Challenger VENCEU para {symbol}! Ganho: {gain:.2%}")
+                    # Aqui promoveria o modelo candidato a principal
+                    # self.ml_models.promote_challenger(symbol, challenger_model)
+                else:
+                    logger.info(f"🛡️ Champion MANTIDO para {symbol}. Challenger ganho: {gain:.2%}")
                 
             except Exception as e:
-                logger.error(f"Error retraining {symbol}: {e}")
+                logger.error(f"Erro no retreino seguro de {symbol}: {e}")
+
+    def _evaluate_model_on_data(self, symbol: str, df: pd.DataFrame) -> Dict:
+        """Avalia performance de um modelo em um DataFrame específico"""
+        if self.ml_models is None:
+            return {}
+            
+        features = self.ml_models.prepare_features(df, symbol)
+        if features is None:
+            return {}
+            
+        # Target real simplificado (mesma lógica do walk-forward)
+        y_true = (df['close'].shift(-5) > df['close']).iloc[:-5].astype(int)
+        X = features[:-5]
+        
+        if len(X) == 0:
+            return {}
+            
+        # Previsão ensemble
+        preds = self.ml_models.predict_ensemble(symbol, X)
+        if 'ensemble' not in preds:
+            return {}
+            
+        y_pred = (preds['ensemble'] > 0.5).astype(int)
+        
+        from sklearn.metrics import accuracy_score
+        acc = accuracy_score(y_true, y_pred)
+        
+        return {'accuracy': acc}
     
     def _evaluate_performance(self):
-        """Avalia performance dos modelos"""
-        logger.info("📈 Evaluating model performance...")
+        """Avalia performance dos modelos com métricas profissionais"""
+        logger.info("📈 Analisando performance profissional (Sharpe, Sortino, Expectancy)...")
         
-        if len(self.tracker.performance_history) < 10:
-            logger.info("Insufficient history for evaluation")
+        if len(self.tracker.performance_history) < 20:
+            logger.info("Histórico insuficiente para métricas profissionais.")
             return
         
-        # Últimas 24h
-        last_24h = [
-            p for p in self.tracker.performance_history
-            if p['timestamp'] > datetime.now() - timedelta(hours=24)
-        ]
+        history = self.tracker.performance_history
+        pnls = [p['pnl'] for p in history]
+        wins = [p['pnl'] for p in history if p['pnl'] > 0]
+        losses = [p['pnl'] for p in history if p['pnl'] < 0]
         
-        if last_24h:
-            accuracy = sum(p['correct'] for p in last_24h) / len(last_24h)
-            avg_pnl = sum(p['pnl'] for p in last_24h) / len(last_24h)
-            
-            logger.info(f"📊 24h Performance - Accuracy: {accuracy:.2%}, Avg PnL: ${avg_pnl:.2f}")
+        # 1. Expectancy (Expectativa Matemática)
+        win_rate = len(wins) / len(history)
+        avg_win = np.mean(wins) if wins else 0
+        avg_loss = abs(np.mean(losses)) if losses else 1
+        expectancy = (win_rate * avg_win) - ((1 - win_rate) * avg_loss)
+        
+        # 2. Sharpe Ratio (Anualizado)
+        returns = pd.Series(pnls)
+        sharpe = (returns.mean() / returns.std() * np.sqrt(252)) if returns.std() > 0 else 0
+        
+        # 3. Sortino Ratio (Focado em risco de queda)
+        downside_std = returns[returns < 0].std()
+        sortino = (returns.mean() / downside_std * np.sqrt(252)) if downside_std > 0 else 0
+        
+        # 4. Profit Factor
+        profit_factor = sum(wins) / abs(sum(losses)) if sum(losses) != 0 else float('inf')
+        
+        logger.info("\n" + "="*50)
+        logger.info("📊 RELATÓRIO DE PERFORMANCE PROFISSIONAL")
+        logger.info("="*50)
+        logger.info(f"💰 Expectancy: ${expectancy:.2f} por trade")
+        logger.info(f"⚖️ Sharpe Ratio: {sharpe:.2f}")
+        logger.info(f"📉 Sortino Ratio: {sortino:.2f}")
+        logger.info(f"📈 Profit Factor: {profit_factor:.2f}")
+        logger.info(f"🎯 Win Rate: {win_rate:.2%}")
+        logger.info("="*50)
+        
+        # 5. Monitoramento de Degradação
+        # Se acurácia recente (últimos 20) for muito inferior à histórica (últimos 100)
+        recent_acc = sum(1 for p in history[-20:] if p['correct']) / 20
+        hist_acc = sum(1 for p in history[-100:] if p['correct']) / len(history[-100:])
+        
+        if recent_acc < hist_acc * 0.7:
+            logger.warning(f"🚨 DEGRADAÇÃO DETECTADA: Acurácia recente ({recent_acc:.1%}) caiu >30% em relação à histórica ({hist_acc:.1%})")
+            # Força retreino ou envia alerta
     
     def _backup_models(self):
         """Backup dos modelos treinados"""

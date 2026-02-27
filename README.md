@@ -11,12 +11,12 @@ JL Capital Trade é um sistema profissional de trading automatizado focado em **
 
 ### ✨ Características Principais
 
-- 🧠 **ML de Alta Performance**: Ensemble de XGBoost e MLP (Neural Network) com 43 features técnicas avançadas.
-- � **Perfil Agressivo**: Configurado para 5% de risco por trade com Relação Risco:Retorno de 1:4.
-- � **Filtro de Sessões**: Operação focada em Londres (08h-17h) e EUA (13h-22h) - Horário de Portugal.
-- 🔄 **Aprendizado Contínuo**: Loop de feedback real que ajusta pesos dos modelos e retreina baseado em performance.
-- 🔒 **Segurança**: Criptografia de credenciais, auditoria de ações e gerenciamento de risco rigoroso.
-- 📊 **Interface CLI**: Controle total via linha de comando para monitoramento e análise.
+- 🧠 **Inteligência Adaptativa**: Ensemble de **XGBoost + MLP** com **Online Learning (SGD)** que aprende com cada trade individualmente.
+- 🛡️ **Proteção Robusta**: Sistema de **Heartbeat (1s)**, verificações de **Slippage/Spread** de última milha e **Circuit Breakers** automáticos.
+- 📰 **Filtro de Notícias**: Bloqueio automático 30 min antes e 60 min após eventos de alto impacto (USD/EUR).
+- 📊 **Análise MTF & Regime**: Filtros de tendência em múltiplos timeframes (H1/H4/D1) e detecção de regime (Tendência vs Range).
+- ⚖️ **Gestão Dinâmica**: Risco adaptativo baseado na confiança do modelo e stops dinâmicos calculados pelo **ATR**.
+- 🧪 **Validação Rigorosa**: Testado via **Walk-Forward Validation** e **Monte Carlo Simulation** (Probabilidade de Ruína: 0%).
 
 ## 🚀 Como Executar
 

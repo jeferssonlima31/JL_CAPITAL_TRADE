@@ -42,15 +42,73 @@ class DataCollector:
         
         return df
     
+    def _calculate_rsi(self, series, period=14):
+        """Calcula RSI"""
+        delta = series.diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+        rs = gain / loss
+        return 100 - (100 / (1 + rs))
+
+    def detect_market_regime(self, df: pd.DataFrame) -> Dict:
+        """Detecta o regime de mercado atual (Tendência vs Range, Volatilidade)"""
+        if df is None or len(df) < 50:
+            return {'regime': 'unknown', 'volatility': 'low', 'adx': 0}
+            
+        # 1. ADX (Average Directional Index) para força da tendência
+        high, low, close = df['high'], df['low'], df['close']
+        plus_dm = high.diff().clip(lower=0)
+        minus_dm = (-low.diff()).clip(lower=0)
+        
+        tr = pd.concat([high - low, 
+                       abs(high - close.shift()), 
+                       abs(low - close.shift())], axis=1).max(axis=1)
+        atr_14 = tr.rolling(14).mean()
+        
+        plus_di = 100 * (plus_dm.rolling(14).mean() / atr_14)
+        minus_di = 100 * (minus_dm.rolling(14).mean() / atr_14)
+        dx = 100 * abs(plus_di - minus_di) / (plus_di + minus_di)
+        adx = dx.rolling(14).mean().iloc[-1]
+        
+        # 2. Volatilidade Relativa (ATR Ratio)
+        atr_current = atr_14.iloc[-1]
+        atr_mean = atr_14.rolling(100).mean().iloc[-1]
+        volatility_ratio = atr_current / atr_mean if atr_mean > 0 else 1.0
+        
+        # Classificação
+        regime = "trending" if adx > 25 else "ranging"
+        volatility = "high" if volatility_ratio > 1.5 else "normal" if volatility_ratio > 0.8 else "low"
+        
+        return {
+            'regime': regime,
+            'volatility': volatility,
+            'adx': adx,
+            'volatility_ratio': volatility_ratio
+        }
+
+    def get_mtf_context(self, symbol: str) -> Dict:
+        """Obtém contexto de múltiplos timeframes (H4 e D1)"""
+        context = {}
+        
+        # H4 para tendência principal
+        df_h4 = self.get_historical_data(symbol, "H4", 100)
+        if df_h4 is not None:
+            ma_20 = df_h4['close'].rolling(20).mean().iloc[-1]
+            current_price = df_h4['close'].iloc[-1]
+            context['h4_trend'] = "bullish" if current_price > ma_20 else "bearish"
+            
+        # D1 para suporte/resistência maior
+        df_d1 = self.get_historical_data(symbol, "D1", 50)
+        if df_d1 is not None:
+            context['d1_rsi'] = self._calculate_rsi(df_d1['close'], 14).iloc[-1]
+            
+        return context
+
     def calculate_indicators(self, df: pd.DataFrame, symbol: str) -> pd.DataFrame:
         """Calcula indicadores técnicos"""
         
         # RSI
-        delta = df['close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-        rs = gain / loss
-        df['rsi'] = 100 - (100 / (1 + rs))
+        df['rsi'] = self._calculate_rsi(df['close'], 14)
         
         # MACD
         exp1 = df['close'].ewm(span=12).mean()

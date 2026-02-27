@@ -17,6 +17,7 @@ from .ml_models import JLMLModels
 from .continuous_learning import ContinuousLearner
 from .cache_manager import CacheManager
 from .risk_manager import RiskManager
+from .news_filter import NewsFilter
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,7 @@ class JLTradingBot:
         self.data_collector = DataCollector(config, self.mt5)
         self.data_collector.set_cache(self.cache)
         self.risk_manager = RiskManager(config)
+        self.news_filter = NewsFilter(config)
         
         # ML e aprendizado
         self.continuous_learner = ContinuousLearner(
@@ -113,21 +115,35 @@ class JLTradingBot:
         self.audit.log_action("system", "stop", "bot", "success")
     
     def _main_loop(self):
-        """Loop principal de trading"""
+        """Loop principal de trading com controle UTC"""
+        
+        # Atualização inicial de notícias
+        self.news_filter.update_news()
+        last_news_update = datetime.now()
         
         while self.is_running:
             try:
-                # Verifica sessões (Londres/EUA - Horário de Portugal)
-                now = datetime.now()
-                hour = now.hour
-                is_london = 8 <= hour < 17
-                is_usa = 13 <= hour < 22
+                # 1. Controle de Sessões via UTC (Evita erro horário verão)
+                now_utc = datetime.utcnow()
+                hour_utc = now_utc.hour
+                
+                # Sessão Londres: 08:00 - 16:00 UTC
+                # Sessão EUA: 13:00 - 21:00 UTC
+                is_london = 8 <= hour_utc < 16
+                is_usa = 13 <= hour_utc < 21
                 
                 if not (is_london or is_usa):
-                    if now.minute % 15 == 0: # Log a cada 15 min fora de hora
-                        logger.info(f"💤 Fora das sessões operacionais ({hour:02d}:{now.minute:02d})")
+                    if now_utc.minute % 30 == 0:
+                        logger.info(f"💤 Fora das sessões UTC (London/USA) - Hora atual UTC: {hour_utc:02d}:{now_utc.minute:02d}")
                     time.sleep(60)
                     continue
+
+                # 2. Atualiza notícias a cada 4 horas
+                if datetime.now() - last_news_update > timedelta(hours=4):
+                    self.news_filter.update_news()
+                    last_news_update = datetime.now()
+
+                # 3. Verifica Filtro de Notícias Econômicas
 
                 # Analisa EUR/USD
                 if self.config.is_testing() or self._check_market_hours("EUR_USD"):
@@ -167,44 +183,65 @@ class JLTradingBot:
         return market_hours['is_optimal']
     
     def _analyze_pair(self, symbol: str, timeframe: str) -> Optional[Dict]:
-        """Analisa par específico"""
+        """Analisa símbolo usando ML, Regime de Mercado e MTF"""
         
         # Verifica cache
         cache_key = f"analysis_{symbol}_{timeframe}"
         cached = self.cache.get(cache_key)
         if cached:
             return cached
-        
-        # Coleta dados (Aumentado para 500 para compatibilidade agressiva)
+            
+        # 1. Coleta dados
         df = self.data_collector.get_historical_data(symbol, timeframe, 500)
-        if df is None:
+        if df is None or len(df) < 200:
             return None
+            
+        # 2. Detecta Regime de Mercado
+        regime = self.data_collector.detect_market_regime(df)
+        logger.info(f"📊 Regime {symbol}: {regime['regime'].upper()} | Volatilidade: {regime['volatility'].upper()} (ADX: {regime['adx']:.1f})")
         
-        # Calcula indicadores
+        # 3. Contexto Multi-Timeframe (MTF)
+        mtf = self.data_collector.get_mtf_context(symbol)
+        
+        # 4. Prepara features e Previsão ML
         df = self.data_collector.calculate_indicators(df, symbol)
-        
-        # Prepara features
         features = self.ml_models.prepare_features(df, symbol)
         if features is None:
             return None
-        
-        # Cria sequência para previsão (Lookback agressivo = 200)
+            
+        # Filtro de Volatilidade ATR
+        atr_current = df['atr'].iloc[-1]
+        atr_mean = df['atr'].rolling(50).mean().iloc[-1]
+        if not self.news_filter.check_volatility_protection(atr_current, atr_mean):
+            return None
+            
+        # Cria sequência para previsão
         lookback = 200 if "aggressive" in self.ml_models.get_model_list(symbol) else (self.config.ml.eurusd_lookback if symbol == "EUR_USD" else self.config.ml.xauusd_lookback)
         
         if len(features) >= lookback:
             X_pred = features[-lookback:].reshape(1, lookback, features.shape[1])
-            
-            # Previsão ensemble
-            predictions = self.ml_models.predict_ensemble(symbol, X_pred)
+            # Passa o regime detectado para o ensemble
+            predictions = self.ml_models.predict_ensemble(symbol, X_pred, regime=regime['regime'])
             
             if predictions and 'ensemble' in predictions:
-                ensemble_pred = predictions['ensemble'][0]
+                prob = predictions['ensemble'][0]
                 
-                # Gera sinal
+                # 5. Filtro de Contexto MTF
+                if prob > 0.7 and mtf.get('h4_trend') == "bearish":
+                    logger.warning(f"⚠️ Sinal de COMPRA ignorado: Tendência H4 é de QUEDA")
+                    return None
+                if prob < 0.3 and mtf.get('h4_trend') == "bullish":
+                    logger.warning(f"⚠️ Sinal de VENDA ignorado: Tendência H4 é de ALTA")
+                    return None
+
+                # 6. Gera sinal
                 signal = self._generate_signal(
-                    symbol, ensemble_pred, predictions,
-                    df['close'].iloc[-1], df['atr'].iloc[-1]
+                    symbol, prob, predictions,
+                    df['close'].iloc[-1], atr_current
                 )
+                
+                # Armazena features para Online Learning posterior
+                signal['features_at_entry'] = X_pred.reshape(1, -1)
                 
                 # Salva no cache (15 minutos)
                 if signal['action'] != "HOLD":
@@ -214,44 +251,33 @@ class JLTradingBot:
         
         return None
     
-    def _generate_signal(self, symbol: str, ensemble_pred: float,
-                         predictions: Dict, current_price: float,
+    def _generate_signal(self, symbol: str, ensemble_pred: float, 
+                         predictions: Dict, current_price: float, 
                          atr: float) -> Dict:
-        """Gera sinal de trading"""
+        """Gera sinal com filtros de probabilidade e stops dinâmicos"""
         
-        config = self.config.risk
+        # Filtro de Confiança (Threshold Aumentado para Alta Qualidade)
+        confidence_threshold = 0.75 # Operar apenas sinais muito fortes
         
-        # Calcula confiança
-        confidence = abs(ensemble_pred - 0.5) * 2
-        
-        # Decisão
-        if ensemble_pred > self.config.ml.buy_threshold and confidence > self.config.ml.confidence_threshold:
-            action = "BUY"
-            strength = "STRONG" if ensemble_pred > 0.75 else "MODERATE"
-            
-            if symbol == "EUR_USD":
-                sl = current_price - (config.default_sl_pips_eurusd * 0.0001)
-                tp = current_price + (config.default_tp_pips_eurusd * 0.0001)
-            else:
-                sl = current_price - (config.default_sl_pips_xauusd * 0.1)
-                tp = current_price + (config.default_tp_pips_xauusd * 0.1)
-                
-        elif ensemble_pred < self.config.ml.sell_threshold and confidence > self.config.ml.confidence_threshold:
-            action = "SELL"
-            strength = "STRONG" if ensemble_pred < 0.25 else "MODERATE"
-            
-            if symbol == "EUR_USD":
-                sl = current_price + (config.default_sl_pips_eurusd * 0.0001)
-                tp = current_price - (config.default_tp_pips_eurusd * 0.0001)
-            else:
-                sl = current_price + (config.default_sl_pips_xauusd * 0.1)
-                tp = current_price - (config.default_tp_pips_xauusd * 0.1)
+        if ensemble_pred > confidence_threshold:
+            action = 'BUY'
+            sl = current_price - (atr * 2.5) # Stop dinâmico ATR (2.5x)
+            tp = current_price + (atr * 10)  # TP dinâmico RR 1:4 (10x ATR)
+            strength = 'STRONG'
+            confidence = ensemble_pred
+        elif ensemble_pred < (1 - confidence_threshold):
+            action = 'SELL'
+            sl = current_price + (atr * 2.5)
+            tp = current_price - (atr * 10)
+            strength = 'STRONG'
+            confidence = 1 - ensemble_pred
         else:
-            action = "HOLD"
-            strength = "WEAK"
+            action = 'HOLD'
             sl = 0
             tp = 0
-        
+            strength = 'WEAK'
+            confidence = 0
+            
         signal = {
             'timestamp': datetime.now().isoformat(),
             'symbol': symbol,
@@ -268,22 +294,29 @@ class JLTradingBot:
             'atr': float(atr)
         }
         
-        logger.info(f"📊 Signal: {symbol} - {action} {strength} @ {current_price:.4f} | Conf: {confidence:.1%}")
-        
+        if action != "HOLD":
+            logger.info(f"📊 Signal: {symbol} - {action} {strength} @ {current_price:.4f} | Conf: {confidence:.1%}")
+            
         return signal
     
     def _execute_trade(self, signal: Dict):
-        """Executa trade"""
+        """Executa trade com custos reais"""
         
         if signal['symbol'] in self.positions:
             logger.warning(f"Already have position in {signal['symbol']}")
             return
         
-        # Verifica risco
-        if not self.risk_manager.can_trade(signal['symbol']):
-            logger.warning("Risk check failed")
-            return
+        # Verifica Spread atual antes de entrar
+        current_tick = self.mt5.get_current_tick(signal['symbol'])
+        current_spread = 0
+        if current_tick:
+            current_spread = (current_tick['ask'] - current_tick['bid']) * 10000 if signal['symbol'] == "EUR_USD" else (current_tick['ask'] - current_tick['bid']) * 100
         
+        # Verifica risco e circuit breakers (agora com spread)
+        if not self.risk_manager.can_trade(signal['symbol'], current_spread=current_spread):
+            logger.warning("Risk or Circuit Breaker check failed")
+            return
+
         # Obtém informações da conta
         account_info = self.mt5.get_account_info()
         if not account_info:
@@ -295,15 +328,20 @@ class JLTradingBot:
             signal['symbol'],
             signal['price'],
             signal['atr'],
-            account_info['balance']
+            account_info['balance'],
+            model_confidence=signal['confidence']
         )
+        
+        # Aplica Slippage Realista ao preço de entrada (Simulação)
+        slippage = (self.config.risk.expected_slippage_pips * 0.0001) if signal['symbol'] == "EUR_USD" else (self.config.risk.expected_slippage_pips * 0.01)
+        entry_price = signal['price'] + slippage if signal['action'] == "BUY" else signal['price'] - slippage
         
         # Executa via MT5
         order = {
             'symbol': signal['symbol'].replace('_', ''),
             'type': signal['action'],
             'volume': position_size,
-            'price': signal['price'],
+            'price': entry_price,
             'stop_loss': signal['stop_loss'],
             'take_profit': signal['take_profit'],
             'comment': f"JL_{signal['strength']}_{int(signal['confidence']*100)}"
@@ -311,33 +349,46 @@ class JLTradingBot:
         
         # Em modo teste, não executa de verdade
         if self.config.is_testing():
-            logger.info(f"🧪 TEST MODE - Would execute: {order}")
+            # Calcula comissão
+            commission = position_size * self.config.risk.commission_per_lot
+            
+            logger.info(f"🧪 TEST MODE - Would execute: {order} | Est. Commission: ${commission:.2f}")
             self.positions[signal['symbol']] = {
                 **signal,
                 'ticket': 123456,
                 'open_time': datetime.now(),
-                'open_price': signal['price']
+                'open_price': entry_price,
+                'commission': commission
             }
             self.risk_manager.update_after_trade(signal['symbol'])
             return
         
         # Executa real
-        result = self.mt5.place_order(order)
+        exec_result = self.mt5.place_order(order)
         
-        if result['success']:
+        if exec_result['success']:
+            # Calcula slippage real ocorrido
+            actual_price = exec_result['price']
+            slippage_pips = abs(actual_price - entry_price) * 10000 if signal['symbol'] == "EUR_USD" else abs(actual_price - entry_price) * 100
+            
+            logger.info(f"✅ Trade executed: {signal['symbol']} @ {actual_price} (Slippage: {slippage_pips:.1f} pips)")
+            
+            # Verifica Circuit Breaker de Slippage após execução
+            if not self.risk_manager.check_circuit_breakers(current_slippage=slippage_pips):
+                logger.critical(f"🛑 CIRCUIT BREAKER TRIGGERED BY SLIPPAGE: {slippage_pips:.1f} pips")
+            
             self.positions[signal['symbol']] = {
                 **signal,
-                'ticket': result['ticket'],
+                'ticket': exec_result['ticket'],
                 'open_time': datetime.now(),
-                'open_price': result['price']
+                'open_price': actual_price,
+                'commission': position_size * self.config.risk.commission_per_lot
             }
             
             self.risk_manager.update_after_trade(signal['symbol'])
-            
-            logger.info(f"✅ Trade executed: {signal['action']} {signal['symbol']} @ {result['price']}")
             self.audit.log_action("system", "trade", signal['symbol'], "success", signal)
         else:
-            logger.error(f"❌ Trade failed: {result.get('error')}")
+            logger.error(f"❌ Trade failed: {exec_result.get('error')}")
     
     def _monitor_positions(self):
         """Monitora posições abertas"""
@@ -347,23 +398,26 @@ class JLTradingBot:
             current_price = self.mt5.get_current_price(symbol)
             
             if current_price:
-                # Calcula P&L
+                # Calcula P&L Bruto e Líquido
                 if position['action'] == "BUY":
-                    pnl = (current_price - position['open_price']) * 100000
+                    gross_pnl = (current_price - position['open_price']) * 100000 * position['volume']
                 else:
-                    pnl = (position['open_price'] - current_price) * 100000
+                    gross_pnl = (position['open_price'] - current_price) * 100000 * position['volume']
+                
+                # Desconta comissão
+                net_pnl = gross_pnl - position.get('commission', 0)
                 
                 # Verifica stop loss
                 if position['action'] == "BUY" and current_price <= position['stop_loss']:
-                    self._close_position(symbol, "Stop Loss", pnl)
+                    self._close_position(symbol, "Stop Loss", net_pnl)
                 elif position['action'] == "SELL" and current_price >= position['stop_loss']:
-                    self._close_position(symbol, "Stop Loss", pnl)
+                    self._close_position(symbol, "Stop Loss", net_pnl)
                 
                 # Verifica take profit
                 elif position['action'] == "BUY" and current_price >= position['take_profit']:
-                    self._close_position(symbol, "Take Profit", pnl)
+                    self._close_position(symbol, "Take Profit", net_pnl)
                 elif position['action'] == "SELL" and current_price <= position['take_profit']:
-                    self._close_position(symbol, "Take Profit", pnl)
+                    self._close_position(symbol, "Take Profit", net_pnl)
     
     def _close_position(self, symbol: str, reason: str, pnl: float):
         """Fecha posição"""
@@ -381,11 +435,22 @@ class JLTradingBot:
                 self.performance['winning_trades'] += 1
             self.performance['total_pnl'] += pnl
             
-            # Atualiza risco
-            self.risk_manager.update_pnl(pnl)
+            # Atualiza Risco e Performance
+            account_info = self.mt5.get_account_info()
+            balance = account_info['balance'] if account_info else 0
+            pnl_percent = (pnl / balance * 100) if balance > 0 else 0
+            
+            self.risk_manager.update_pnl(pnl_percent, balance)
             self.risk_manager.remove_position()
             
-            # Feedback para aprendizado
+            # 1. Online Learning (Atualiza SGD com o resultado real)
+            if 'features_at_entry' in position:
+                X_fit = position['features_at_entry']
+                # Target: 1 se lucro, 0 se prejuízo
+                y_fit = np.array([1 if pnl > 0 else 0])
+                self.ml_models.partial_fit_online(symbol, X_fit, y_fit)
+            
+            # 2. Feedback para Continuous Learning (Ajuste de pesos do ensemble)
             self.continuous_learner.add_trade_outcome({
                 'symbol': symbol,
                 'prediction': position['ensemble_pred'],

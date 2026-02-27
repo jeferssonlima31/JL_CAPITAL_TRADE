@@ -83,16 +83,23 @@ class OANDAConfig:
 @dataclass
 class RiskConfig:
     """Configurações de gerenciamento de risco"""
-    max_risk_per_trade: float = float(os.getenv("MAX_RISK_PER_TRADE", "1.0"))
-    max_daily_loss: float = float(os.getenv("MAX_DAILY_LOSS", "3.0"))
-    max_positions: int = int(os.getenv("MAX_POSITIONS", "2"))
-    default_sl_pips_eurusd: int = int(os.getenv("SL_EURUSD", "15"))
-    default_tp_pips_eurusd: int = int(os.getenv("TP_EURUSD", "30"))
+    max_risk_per_trade: float = float(os.getenv("RISK_PER_TRADE", "1.5"))
+    max_daily_loss: float = float(os.getenv("MAX_DAILY_LOSS", "5.0"))
+    max_positions: int = int(os.getenv("MAX_POSITIONS", "3"))
+    max_consecutive_losses: int = int(os.getenv("MAX_CONSECUTIVE_LOSSES", "3"))
+    max_drawdown: float = float(os.getenv("MAX_DRAWDOWN", "15.0"))
+    default_sl_pips_eurusd: int = int(os.getenv("STOP_LOSS_PIPS", "30"))
+    default_tp_pips_eurusd: int = int(os.getenv("TAKE_PROFIT_PIPS", "120"))
     default_sl_pips_xauusd: int = int(os.getenv("SL_XAUUSD", "50"))
     default_tp_pips_xauusd: int = int(os.getenv("TP_XAUUSD", "100"))
     use_trailing_stop: bool = os.getenv("USE_TRAILING_STOP", "false").lower() == "true"
     trailing_activation_pips: int = int(os.getenv("TRAILING_ACTIVATION", "15"))
-    max_spread_pips: int = int(os.getenv("MAX_SPREAD_PIPS", "5"))
+    max_spread_pips: float = float(os.getenv("MAX_SPREAD_PIPS", "2.0"))
+    min_spread_pips: float = float(os.getenv("MIN_SPREAD_PIPS", "0.1"))
+    commission_per_lot: float = float(os.getenv("COMMISSION_PER_LOT", "7.0"))
+    expected_slippage_pips: float = float(os.getenv("EXPECTED_SLIPPAGE_PIPS", "0.5"))
+    max_slippage_pips: float = float(os.getenv("MAX_SLIPPAGE_PIPS", "1.5"))
+    volatility_alert_threshold: float = float(os.getenv("VOLATILITY_ALERT", "2.5"))
 
 @dataclass
 class MLConfig:
@@ -107,6 +114,10 @@ class MLConfig:
     xauusd_prediction_horizon: int = int(os.getenv("XAUUSD_HORIZON", "3"))
     xauusd_retrain_hours: int = int(os.getenv("XAUUSD_RETRAIN", "12"))
     
+    # Aprendizado Seguro
+    min_samples_for_retrain: int = int(os.getenv("MIN_SAMPLES_RETRAIN", "500"))
+    performance_threshold_gain: float = float(os.getenv("PERF_THRESHOLD_GAIN", "0.02")) # Ganho mínimo de 2% em acurácia para trocar
+    
     # Modelos ativos
     active_models: List[str] = field(default_factory=lambda: os.getenv("ACTIVE_MODELS", "xgboost,lstm,ensemble").split(","))
     
@@ -114,6 +125,11 @@ class MLConfig:
     buy_threshold: float = float(os.getenv("BUY_THRESHOLD", "0.65"))
     sell_threshold: float = float(os.getenv("SELL_THRESHOLD", "0.35"))
     confidence_threshold: float = float(os.getenv("CONFIDENCE_THRESHOLD", "0.6"))
+    
+    # Filtro de Notícias
+    news_pause_before: int = int(os.getenv("NEWS_PAUSE_BEFORE", "30"))
+    news_pause_after: int = int(os.getenv("NEWS_PAUSE_AFTER", "60"))
+    news_impact_levels: List[str] = field(default_factory=lambda: os.getenv("NEWS_IMPACT", "High,Medium").split(","))
     
     # Model weights (iniciais)
     model_weights: Dict[str, float] = None

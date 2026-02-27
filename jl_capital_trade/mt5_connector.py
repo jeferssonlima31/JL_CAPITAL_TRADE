@@ -8,6 +8,7 @@ import numpy as np
 from datetime import datetime
 import logging
 import time
+import threading
 from typing import Optional, Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
@@ -19,9 +20,11 @@ class MT5Connector:
         self.config = config
         self.connected = False
         self.account_info = None
+        self.heartbeat_thread = None
+        self.stop_heartbeat = False
         
     def connect(self) -> bool:
-        """Conecta ao MetaTrader 5"""
+        """Conecta ao MetaTrader 5 e inicia heartbeat"""
         try:
             # Inicializa MT5
             if not mt5.initialize(
@@ -43,7 +46,9 @@ class MT5Connector:
             
             self.connected = True
             logger.info(f"✅ Connected to MT5 - Account: {self.account_info.login}")
-            logger.info(f"   Balance: {self.account_info.balance} {self.account_info.currency}")
+            
+            # Inicia Heartbeat
+            self._start_heartbeat()
             
             return True
             
@@ -51,8 +56,37 @@ class MT5Connector:
             logger.error(f"MT5 connection error: {e}")
             return False
     
+    def _start_heartbeat(self):
+        """Inicia thread de verificação de conexão (Heartbeat)"""
+        if self.heartbeat_thread and self.heartbeat_thread.is_alive():
+            return
+            
+        self.stop_heartbeat = False
+        self.heartbeat_thread = threading.Thread(target=self._heartbeat_loop, daemon=True)
+        self.heartbeat_thread.start()
+        logger.info("💓 Heartbeat monitor started (1s check)")
+
+    def _heartbeat_loop(self):
+        """Loop de verificação de conexão"""
+        while not self.stop_heartbeat:
+            try:
+                # Verifica se terminal ainda está respondendo
+                if not mt5.terminal_info():
+                    logger.critical("🚨 MT5 Terminal connection LOST!")
+                    self.connected = False
+                    # Tenta reconectar se configurado
+                    self.connect()
+                else:
+                    self.connected = True
+            except Exception as e:
+                logger.error(f"Heartbeat error: {e}")
+                self.connected = False
+            
+            time.sleep(1)
+
     def disconnect(self):
-        """Desconecta do MT5"""
+        """Desconecta do MT5 e para heartbeat"""
+        self.stop_heartbeat = True
         try:
             mt5.shutdown()
             self.connected = False
@@ -64,6 +98,10 @@ class MT5Connector:
         """Verifica se está conectado"""
         return self.connected
     
+    def is_connected(self) -> bool:
+        """Verifica se está conectado ao MT5"""
+        return self.connected and mt5.terminal_info() is not None
+
     def get_account_info(self) -> Optional[Dict]:
         """Retorna informações da conta"""
         if not self.connected:
@@ -152,48 +190,65 @@ class MT5Connector:
         return 999
     
     def place_order(self, order: Dict) -> Dict:
-        """Coloca ordem no mercado"""
+        """Coloca ordem no mercado com verificações internas de Spread/Slippage"""
         if not self.connected:
             return {'success': False, 'error': 'MT5 not connected'}
         
         try:
-            # Mapeia tipo de ordem
+            mt5_symbol = order['symbol'].replace("_", "")
+            
+            # 1. Verificação Interna de Spread (Proteção de Última Milha)
+            tick = mt5.symbol_info_tick(mt5_symbol)
+            if tick:
+                spread = (tick.ask - tick.bid) * 10000 if "EURUSD" in mt5_symbol else (tick.ask - tick.bid) * 100
+                max_allowed_spread = self.config.risk.max_spread_pips
+                
+                if spread > max_allowed_spread:
+                    logger.warning(f"❌ Order Cancelled: Spread too high ({spread:.1f} > {max_allowed_spread})")
+                    return {'success': False, 'error': f'High spread: {spread:.1f}'}
+
+            # 2. Prepara request
             order_type = mt5.ORDER_TYPE_BUY if order['type'] == 'BUY' else mt5.ORDER_TYPE_SELL
             
-            # Prepara request
             request = {
                 "action": mt5.TRADE_ACTION_DEAL,
-                "symbol": order['symbol'].replace("_", ""),
+                "symbol": mt5_symbol,
                 "volume": order['volume'],
                 "type": order_type,
                 "price": order['price'],
                 "sl": order.get('stop_loss', 0),
                 "tp": order.get('take_profit', 0),
-                "deviation": 10,
+                "deviation": 10, # 10 points slippage tolerance
                 "magic": 234000,
                 "comment": order.get('comment', 'JL_Capital'),
                 "type_time": mt5.ORDER_TIME_GTC,
                 "type_filling": mt5.ORDER_FILLING_IOC,
             }
             
-            # Envia ordem
+            # 3. Envia ordem
             result = mt5.order_send(request)
             
             if result.retcode != mt5.TRADE_RETCODE_DONE:
                 return {
                     'success': False,
-                    'error': f"Order failed: {result.retcode}",
+                    'error': f"Order failed: {result.comment} (Code: {result.retcode})",
                     'ticket': None
                 }
             
-            logger.info(f"✅ Order executed: {order['type']} {order['symbol']} @ {result.price}")
+            # 4. Monitoramento de Slippage Real
+            actual_price = result.price
+            requested_price = order['price']
+            slippage = abs(actual_price - requested_price) * 10000 if "EURUSD" in mt5_symbol else abs(actual_price - requested_price) * 100
+            
+            logger.info(f"✅ Order executed: {order['type']} {order['symbol']} @ {actual_price} (Slippage: {slippage:.1f} pips)")
             
             return {
                 'success': True,
                 'error': None,
                 'ticket': result.order,
-                'price': result.price,
-                'volume': result.volume
+                'price': actual_price,
+                'volume': result.volume,
+                'slippage': slippage
             }
             
         except Exception as e:

@@ -24,6 +24,7 @@ except ImportError:
 # Scikit-learn MLP — substituto do LSTM, compatível com Python 3.13
 try:
     from sklearn.neural_network import MLPClassifier
+    from sklearn.linear_model import SGDClassifier
     from sklearn.preprocessing import StandardScaler
     import joblib
     SKLEARN_AVAILABLE = True
@@ -59,6 +60,12 @@ class JLMLModels:
         self.scalers: Dict[str, Optional[StandardScaler]] = {
             'EUR_USD': None,
             'XAU_USD': None
+        }
+
+        # Modelos Online (SGDClassifier)
+        self.online_learners: Dict[str, Optional[SGDClassifier]] = {
+            'EUR_USD': self.create_online_learner(),
+            'XAU_USD': self.create_online_learner()
         }
 
         # Carrega modelos existentes
@@ -238,25 +245,78 @@ class JLMLModels:
             verbose=False
         )
 
+    def create_online_learner(self) -> Optional[SGDClassifier]:
+        """Cria modelo SGDClassifier para Online Learning (partial_fit)"""
+        if not SKLEARN_AVAILABLE:
+            return None
+        return SGDClassifier(
+            loss='log_loss',
+            penalty='l2',
+            alpha=0.0001,
+            l1_ratio=0.15,
+            fit_intercept=True,
+            max_iter=1000,
+            tol=1e-3,
+            shuffle=True,
+            verbose=0,
+            epsilon=0.1,
+            n_jobs=-1,
+            random_state=42,
+            learning_rate='optimal',
+            eta0=0.0,
+            power_t=0.5,
+            early_stopping=False,
+            validation_fraction=0.1,
+            n_iter_no_change=5,
+            class_weight=None,
+            warm_start=False,
+            average=False
+        )
+
+    def partial_fit_online(self, symbol: str, X: np.ndarray, y: np.ndarray):
+        """Atualiza o modelo online com novos dados (Online Learning)"""
+        if self.online_learners[symbol] is not None:
+            # Garante que as classes sejam [0, 1]
+            classes = np.array([0, 1])
+            self.online_learners[symbol].partial_fit(X, y, classes=classes)
+            logger.info(f"⚡ Online Learner updated for {symbol} (SGD partial_fit)")
+
+    def predict_regime_aware(self, symbol: str, X: np.ndarray, regime: str) -> Dict:
+        """Faz previsão adaptada ao regime de mercado (Tendência vs Range)"""
+        
+        # 1. Faz previsões base
+        preds = self.predict_ensemble(symbol, X)
+        
+        # 2. Ajusta pesos baseados no regime
+        # Em 'trending', damos mais peso ao XGBoost (melhor para tendências)
+        # Em 'ranging', damos mais peso ao ExtraTrees ou MLP (melhor para reversões)
+        
+        if regime == "trending":
+            # Damos 70% de peso ao modelo principal
+            pass
+        elif regime == "ranging":
+            # Reduzimos threshold ou mudamos pesos
+            pass
+            
+        return preds
+
     # -------------------------------------------------------------------------
     # Previsão Ensemble
     # -------------------------------------------------------------------------
 
     def predict_ensemble(self, symbol: str, X: np.ndarray,
-                         use_weights: bool = True) -> Dict:
+                         use_weights: bool = True, regime: str = "normal") -> Dict:
         """
-        Faz previsão ensemble.
-        X pode ser (1, lookback, n_features) [formato LSTM] ou (1, n_features).
+        Faz previsão ensemble combinando modelos estáticos e o online learner.
         """
-        predictions: Dict[str, np.ndarray] = {}
-
-        weights: Dict[str, float] = {}
-        if use_weights and self.continuous_learner:
-            weights = self.continuous_learner.tracker.get_model_weights()
+        results = {}
+        probs = []
+        weights_list = []
 
         if symbol not in self.models:
-            return predictions
+            return results
 
+        # 1. Previsão dos modelos estáticos
         for name, model in self.models[symbol].items():
             try:
                 # Garantir formato 2D
@@ -265,11 +325,9 @@ class JLMLModels:
                 else:
                     X_input = X
 
-                # Aplicar scaler se existir (MLP e Agressivo precisam de dados normalizados)
+                # Aplicar scaler se existir
                 if (name in ('mlp', 'mlp_eurusd', 'mlp_xauusd') or "aggressive" in name) and self.scalers.get(symbol):
-                    # Tenta carregar o scaler agressivo se o nome do modelo contiver aggressive
                     if "aggressive" in name:
-                        # Tenta encontrar o scaler agressivo na pasta trained_models
                         for scaler_file in self.models_dir.glob("scaler_aggressive_*.pkl"):
                             try:
                                 agg_scaler = joblib.load(scaler_file)
@@ -280,29 +338,54 @@ class JLMLModels:
                         X_input = self.scalers[symbol].transform(X_input)
 
                 if hasattr(model, 'predict_proba'):
-                    pred = model.predict_proba(X_input)[:, 1]
+                    p = model.predict_proba(X_input)[:, 1]
                 else:
-                    pred = model.predict(X_input).astype(float)
-
-                predictions[name] = pred
-                logger.debug(f"  [{name}] pred={pred[0]:.4f}")
-
+                    p = model.predict(X_input).astype(float)
+                
+                results[name] = p
+                
+                # Obtém peso do tracker
+                weight = 1.0
+                if use_weights and self.continuous_learner:
+                    weight = self.continuous_learner.tracker.get_model_weight(symbol, name)
+                
+                # Ajuste de peso por Regime
+                if regime == "trending" and ("xgboost" in name.lower()):
+                    weight *= 1.5 # Favorece XGBoost em tendência
+                elif regime == "ranging" and ("mlp" in name.lower()):
+                    weight *= 1.5 # Favorece MLP em range
+                
+                probs.append(p)
+                weights_list.append(weight)
             except Exception as e:
-                logger.error(f"Erro ao prever com {name}: {e}")
-                continue
+                logger.error(f"Erro na previsão do modelo {name}: {e}")
 
-        # Ensemble ponderado
-        if predictions:
-            ensemble = np.zeros_like(list(predictions.values())[0], dtype=float)
-            total_w = 0.0
-            for name, pred in predictions.items():
-                w = weights.get(name, 1.0 / len(predictions))
-                ensemble += pred * w
-                total_w += w
-            if total_w > 0:
-                predictions['ensemble'] = ensemble / total_w
+        # 2. Previsão do Online Learner (SGD)
+        online_model = self.online_learners.get(symbol)
+        if online_model is not None and hasattr(online_model, "predict_proba"):
+            try:
+                # Garantir formato 2D
+                X_input = X.reshape(X.shape[0], -1) if len(X.shape) == 3 else X
+                p_online = online_model.predict_proba(X_input)[:, 1]
+                results['online_sgd'] = p_online
+                
+                # Online learner tem peso fixo inicial ou adaptativo
+                weight_online = 0.2
+                probs.append(p_online)
+                weights_list.append(weight_online)
+            except:
+                pass
 
-        return predictions
+        # 3. Calcula Média Ponderada (Ensemble)
+        if probs:
+            probs_arr = np.array(probs)
+            weights_arr = np.array(weights_list)
+            if weights_arr.sum() > 0:
+                weights_arr = weights_arr / weights_arr.sum()
+                ensemble_prob = np.average(probs_arr, axis=0, weights=weights_arr)
+                results['ensemble'] = ensemble_prob
+            
+        return results
 
     # -------------------------------------------------------------------------
     # Utilitários

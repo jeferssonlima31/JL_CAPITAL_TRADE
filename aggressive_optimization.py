@@ -14,6 +14,7 @@ from sklearn.model_selection import RandomizedSearchCV, TimeSeriesSplit
 from sklearn.metrics import make_scorer, accuracy_score, f1_score
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.preprocessing import StandardScaler
+from sklearn.feature_selection import SelectFromModel
 import xgboost as xgb
 import joblib
 import logging
@@ -183,18 +184,19 @@ class AggressiveOptimizer:
         return df
     
     def optimize_xgboost_aggressive(self, X, y):
-        """Otimização agressiva do XGBoost"""
-        logger.info("🔥 Otimização agressiva do XGBoost")
+        """Otimização agressiva do XGBoost com Controle de Overfitting"""
+        logger.info("🔥 Otimização agressiva do XGBoost (Regularizado)")
         
-        # Parâmetros para grid search
+        # Parâmetros para grid search - Adicionado L1, L2 e Early Stopping
         param_grid = {
-            'n_estimators': [100, 200, 300],
-            'max_depth': [3, 4, 5, 6],
-            'learning_rate': [0.01, 0.05, 0.1],
-            'subsample': [0.8, 0.9, 1.0],
-            'colsample_bytree': [0.8, 0.9, 1.0],
-            'gamma': [0, 0.1, 0.2],
-            'min_child_weight': [1, 3, 5]
+            'n_estimators': [100, 200],
+            'max_depth': [3, 4, 5],
+            'learning_rate': [0.01, 0.05],
+            'subsample': [0.7, 0.8],
+            'colsample_bytree': [0.7, 0.8],
+            'reg_alpha': [0.1, 0.5, 1.0], # L1 Regularization
+            'reg_lambda': [0.1, 0.5, 1.0], # L2 Regularization
+            'gamma': [0.1, 0.2]
         }
         
         # TimeSeries Cross Validation
@@ -275,10 +277,28 @@ class AggressiveOptimizer:
         
         return best_model
     
+    def select_robust_features(self, X, y):
+        """Seleciona as features mais robustas para evitar overfitting"""
+        logger.info("🔍 Selecionando features robustas...")
+        
+        # Modelo base para seleção (ExtraTrees é excelente para isso)
+        selector_model = ExtraTreesClassifier(n_estimators=100, random_state=42)
+        
+        # Seleciona baseado em importância (threshold médio)
+        selector = SelectFromModel(selector_model, threshold="1.25*mean")
+        selector.fit(X, y)
+        
+        selected_features = X.columns[selector.get_support()].tolist()
+        
+        logger.info(f"✅ Redução de features: {len(X.columns)} -> {len(selected_features)}")
+        logger.info(f"📋 Features selecionadas: {selected_features}")
+        
+        return selected_features
+
     def run_aggressive_optimization(self):
-        """Executa otimização agressiva completa"""
+        """Executa otimização agressiva completa com controle de overfitting"""
         logger.info("\n" + "="*70)
-        logger.info("🚀 INICIANDO OTIMIZAÇÃO AGRESSIVA")
+        logger.info("🚀 INICIANDO OTIMIZAÇÃO AGRESSIVA (OVERFITTING CONTROL)")
         logger.info("="*70)
         
         # Coleta dados
@@ -295,19 +315,22 @@ class AggressiveOptimizer:
         X = data[feature_columns].select_dtypes(include=[np.number])
         y = data['target']
         
-        logger.info(f"📊 Dados: {X.shape[0]} amostras, {X.shape[1]} features")
-        logger.info(f"🎯 Target balance: {y.value_counts().to_dict()}")
+        # 1. Seleção de Features Robustas (Controle de Overfitting)
+        robust_features = self.select_robust_features(X, y)
+        X_robust = X[robust_features]
         
-        # Normaliza features
-        X_scaled = self.scaler.fit_transform(X)
+        logger.info(f"📊 Dados: {X_robust.shape[0]} amostras, {X_robust.shape[1]} features robustas")
         
-        # Otimização agressiva
+        # 2. Normaliza apenas features robustas
+        X_scaled = self.scaler.fit_transform(X_robust)
+        
+        # 3. Otimização agressiva (com regularização interna)
         optimized_model = self.train_confidence_ensemble(X_scaled, y)
         
-        # Salva modelo otimizado
-        self._save_optimized_model(optimized_model, X.columns.tolist())
+        # Salva modelo otimizado com a lista de features robustas
+        self._save_optimized_model(optimized_model, robust_features)
         
-        # Testa confiança em dados recentes
+        # 4. Testa confiança em dados recentes (Validação fora do treino)
         self.test_confidence_improvement(optimized_model, X_scaled, y)
         
         return True

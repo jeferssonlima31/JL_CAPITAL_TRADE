@@ -12,16 +12,9 @@ logger = logging.getLogger(__name__)
 
 class AggressiveFeatureCompatibility:
     def __init__(self):
-        # As 43 features exatas que o modelo agressivo espera
+        # Features ROBUSTAS selecionadas para evitar overfitting (6 features)
         self.required_features = [
-            'open', 'high', 'low', 'close', 'tick_volume', 'spread', 'real_volume', 
-            'hour', 'day_of_week', 'is_london', 'is_usa', 'is_overlay', 'returns', 
-            'log_returns', 'ma_5', 'ma_10', 'ma_20', 'ma_50', 'ma_100', 'ma_200', 
-            'momentum_5', 'momentum_10', 'roc_5', 'roc_10', 'volatility_20', 
-            'volatility_50', 'rsi_7', 'rsi_14', 'rsi_21', 'macd_12_26', 
-            'macd_signal_12_26', 'macd_8_17', 'macd_signal_8_17', 'macd_5_35', 
-            'macd_signal_5_35', 'bb_middle', 'bb_std', 'bb_upper', 'bb_lower', 
-            'bb_width', 'bb_position', 'volume_ma_ratio', 'volume_roc'
+            'ma_50', 'ma_100', 'ma_200', 'volatility_20', 'volatility_50', 'bb_std'
         ]
     
     def convert_to_aggressive_format(self, df: pd.DataFrame) -> pd.DataFrame:

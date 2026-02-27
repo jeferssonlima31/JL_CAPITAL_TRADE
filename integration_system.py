@@ -26,6 +26,7 @@ class IntegrationSystem:
     def load_best_model(self):
         """Carrega o melhor modelo disponível com fallback"""
         model_candidates = [
+            'trained_models/xgboost_aggressive_20260227_005028.joblib',       # MODELO ROBUSTO (6 FEATURES)
             'trained_models/xgboost_aggressive_20260226_232515.joblib',       # MODELO AGRESSIVO ALTA PERFORMANCE
             'trained_models/xgboost_turbo_compatible_20260220_221727.joblib',  # NOVO MODELO TURBO COMPATÍVEL
             'trained_models/xgboost_turbo_compatible_20260220_152940.joblib',  # Modelo turbo antigo
@@ -39,6 +40,7 @@ class IntegrationSystem:
         ]
         
         scaler_candidates = [
+            'trained_models/scaler_aggressive_20260227_005028.pkl',        # SCALER ROBUSTO
             'trained_models/scaler_aggressive_20260226_232515.pkl',        # SCALER AGRESSIVO
             'trained_models/scaler_turbo_compatible_20260220_221742.pkl',  # NOVO SCALER COMPATÍVEL
             'trained_models/scaler_turbo_compatible_20260220_155957.pkl',  # Scaler compatível antigo
