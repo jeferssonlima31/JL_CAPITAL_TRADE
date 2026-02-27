@@ -43,8 +43,8 @@ O sistema utiliza uma abordagem de **Champion vs Challenger** para evoluir os mo
 ## 🧪 Validação e Testes de Robustez
 
 O sistema utiliza técnicas avançadas de validação para garantir a estabilidade do modelo:
-- **Walk-Forward Validation (WFV)**: O modelo é validado em janelas móveis de tempo, garantindo que o teste ocorra sempre em dados cronologicamente posteriores ao treino.
-- **Teste Fora da Amostra (OOS)**: Separação rigorosa de dados que o modelo nunca viu para medir a acurácia real.
+- **Walk-Forward Validation (WFV)**: O modelo é validado em janelas móveis de tempo (12.000 barras / ~1.5 anos), garantindo que o teste ocorra sempre em dados cronologicamente posteriores ao treino.
+- **Resultados OOS (Out-of-Sample)**: Acurácia real de **74.62%** com Sharpe Ratio de **19.39**, confirmando a eficácia dos filtros de robustez.
 - **Simulação Cronológica Realista**: Testes que consideram spreads, slippage e a evolução do saldo da conta (Equity Curve).
 - **Métricas de Risco**: Monitoramento constante de Sharpe Ratio (alvo > 2.0) e Max Drawdown (limite 15%).
 

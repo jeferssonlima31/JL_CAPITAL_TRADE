@@ -176,7 +176,7 @@ class JLMLModels:
             'rsi', 'macd', 'macd_signal', 'macd_hist',
             'bb_width', 'bb_position', 'atr', 'volume_ratio',
             'close_position', 'volatility', 'ema_cross',
-            'momentum', 'roc'
+            'momentum', 'roc', 'hurst', 'fractal_dim', 'efficiency_ratio'
         ]
 
         available = [c for c in feature_columns if c in df.columns]

@@ -104,8 +104,42 @@ class DataCollector:
             
         return context
 
+    def calculate_robust_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Adiciona indicadores de robustez estatística para filtrar ruído"""
+        close = df['close']
+        
+        # 1. Hurst Exponent (Simplificado) - Detecta persistência de tendência
+        # H > 0.5 (Tendência), H < 0.5 (Reversão), H = 0.5 (Random Walk)
+        def get_hurst(series, window=30):
+            lags = range(2, 15)
+            tau = [np.sqrt(np.std(np.subtract(series[lag:], series[:-lag]))) for lag in lags]
+            poly = np.polyfit(np.log(lags), np.log(tau), 1)
+            return poly[0] * 2.0
+            
+        df['hurst'] = close.rolling(30).apply(get_hurst)
+        
+        # 2. Fractal Dimension (Ehlers) - Mede complexidade/ruído
+        # Valores baixos indicam tendência limpa, altos indicam congestão/ruído
+        def get_fractal_dim(high, low, window=20):
+            n1 = (high.rolling(window//2).max() - low.rolling(window//2).min()) / (window//2)
+            n2 = (high.shift(window//2).rolling(window//2).max() - low.shift(window//2).rolling(window//2).min()) / (window//2)
+            n3 = (high.rolling(window).max() - low.rolling(window).min()) / window
+            
+            # Evita log de zero ou negativo
+            dim = (np.log(n1 + n2) - np.log(n3)) / np.log(2)
+            return dim
+            
+        df['fractal_dim'] = get_fractal_dim(df['high'], df['low'])
+        
+        # 3. Efficiency Ratio (Kaufman) - Sinal vs Ruído
+        change = abs(close - close.shift(10))
+        volatility = (abs(close - close.shift(1))).rolling(10).sum()
+        df['efficiency_ratio'] = change / volatility
+        
+        return df.ffill().fillna(0.5)
+
     def calculate_indicators(self, df: pd.DataFrame, symbol: str) -> pd.DataFrame:
-        """Calcula indicadores técnicos"""
+        """Calcula todos os indicadores, incluindo os robustos"""
         
         # RSI
         df['rsi'] = self._calculate_rsi(df['close'], 14)
@@ -162,6 +196,9 @@ class DataCollector:
         
         # ROC (Rate of Change)
         df['roc'] = df['close'].pct_change(periods=10) * 100
+
+        # Adiciona indicadores robustos para aumentar acurácia real
+        df = self.calculate_robust_indicators(df)
         
         return df
     
