@@ -117,6 +117,18 @@ class JLTradingBot:
         
         while self.is_running:
             try:
+                # Verifica sessões (Londres/EUA - Horário de Portugal)
+                now = datetime.now()
+                hour = now.hour
+                is_london = 8 <= hour < 17
+                is_usa = 13 <= hour < 22
+                
+                if not (is_london or is_usa):
+                    if now.minute % 15 == 0: # Log a cada 15 min fora de hora
+                        logger.info(f"💤 Fora das sessões operacionais ({hour:02d}:{now.minute:02d})")
+                    time.sleep(60)
+                    continue
+
                 # Analisa EUR/USD
                 if self.config.is_testing() or self._check_market_hours("EUR_USD"):
                     eurusd_signal = self._analyze_pair("EUR_USD", "H1")
@@ -163,7 +175,7 @@ class JLTradingBot:
         if cached:
             return cached
         
-        # Coleta dados
+        # Coleta dados (Aumentado para 500 para compatibilidade agressiva)
         df = self.data_collector.get_historical_data(symbol, timeframe, 500)
         if df is None:
             return None
@@ -176,8 +188,8 @@ class JLTradingBot:
         if features is None:
             return None
         
-        # Cria sequência para previsão
-        lookback = self.config.ml.eurusd_lookback if symbol == "EUR_USD" else self.config.ml.xauusd_lookback
+        # Cria sequência para previsão (Lookback agressivo = 200)
+        lookback = 200 if "aggressive" in self.ml_models.get_model_list(symbol) else (self.config.ml.eurusd_lookback if symbol == "EUR_USD" else self.config.ml.xauusd_lookback)
         
         if len(features) >= lookback:
             X_pred = features[-lookback:].reshape(1, lookback, features.shape[1])

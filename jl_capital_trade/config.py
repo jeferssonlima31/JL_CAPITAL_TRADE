@@ -146,7 +146,7 @@ class JLConfig:
         # Diretórios
         self.base_dir = Path(__file__).parent.parent
         self.data_dir = self.base_dir / "data"
-        self.models_dir = self.base_dir / "models"
+        self.models_dir = self.base_dir / "trained_models"  # Alterado para usar a pasta existente
         self.logs_dir = self.base_dir / "logs"
         self.reports_dir = self.base_dir / "reports"
         self.backup_dir = self.base_dir / "backups"

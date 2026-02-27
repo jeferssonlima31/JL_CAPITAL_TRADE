@@ -26,7 +26,9 @@ class IntegrationSystem:
     def load_best_model(self):
         """Carrega o melhor modelo disponível com fallback"""
         model_candidates = [
-            'trained_models/xgboost_turbo_compatible_20260220_152940.joblib',  # NOVO MODELO TURBO COMPATÍVEL
+            'trained_models/xgboost_aggressive_20260226_232515.joblib',       # MODELO AGRESSIVO ALTA PERFORMANCE
+            'trained_models/xgboost_turbo_compatible_20260220_221727.joblib',  # NOVO MODELO TURBO COMPATÍVEL
+            'trained_models/xgboost_turbo_compatible_20260220_152940.joblib',  # Modelo turbo antigo
             'trained_models/xgboost_turbo_20260220_134050.joblib',             # Modelo turbo antigo 98.2%
             'trained_models/xgboost_optimized_20260220_115802.model',           # Modelo 65.67% (balanceado)
             'trained_models/xgboost_optimized_complete.model',                  # Modelo completo 82.65%
@@ -37,7 +39,9 @@ class IntegrationSystem:
         ]
         
         scaler_candidates = [
-            'trained_models/scaler_turbo_compatible_20260220_155957.pkl',  # NOVO SCALER COMPATÍVEL
+            'trained_models/scaler_aggressive_20260226_232515.pkl',        # SCALER AGRESSIVO
+            'trained_models/scaler_turbo_compatible_20260220_221742.pkl',  # NOVO SCALER COMPATÍVEL
+            'trained_models/scaler_turbo_compatible_20260220_155957.pkl',  # Scaler compatível antigo
             'trained_models/scaler_turbo_20260220_134050.pkl',             # Scaler do modelo turbo antigo
             'trained_models/feature_scaler_optimized.pkl',
             'trained_models/feature_scaler.pkl'

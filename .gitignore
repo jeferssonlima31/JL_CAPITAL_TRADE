@@ -15,6 +15,7 @@ venv/
 # Dados
 data/
 models/
+trained_models/
 cache/
 logs/
 reports/
@@ -22,6 +23,8 @@ backups/
 *.pkl
 *.h5
 *.joblib
+*.model
+*.png
 
 # IDE
 .vscode/

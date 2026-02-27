@@ -10,7 +10,7 @@ import MetaTrader5 as mt5
 from integration_system import IntegrationSystem
 from sklearn.ensemble import GradientBoostingClassifier, ExtraTreesClassifier
 from sklearn.svm import SVC
-from sklearn.model_selection import GridSearchCV, TimeSeriesSplit
+from sklearn.model_selection import RandomizedSearchCV, TimeSeriesSplit
 from sklearn.metrics import make_scorer, accuracy_score, f1_score
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.preprocessing import StandardScaler
@@ -62,7 +62,7 @@ class AggressiveOptimizer:
             logger.error(f"Erro na conexão: {e}")
             return False
     
-    def collect_high_quality_data(self, symbol='EURUSD', bars=1000):
+    def collect_high_quality_data(self, symbol='EURUSD', bars=5000):
         """Coleta dados de alta qualidade para treinamento"""
         if not self.connect_to_mt5():
             return None
@@ -101,6 +101,16 @@ class AggressiveOptimizer:
     
     def _calculate_advanced_features(self, df):
         """Calcula features técnicas avançadas"""
+        # Features de Tempo/Sessão (Horário de Portugal)
+        df['time'] = pd.to_datetime(df['time'], unit='s')
+        df['hour'] = df['time'].dt.hour
+        df['day_of_week'] = df['time'].dt.dayofweek
+        
+        # Sessões
+        df['is_london'] = ((df['hour'] >= 8) & (df['hour'] < 17)).astype(int)
+        df['is_usa'] = ((df['hour'] >= 13) & (df['hour'] < 22)).astype(int)
+        df['is_overlay'] = (df['is_london'] & df['is_usa']).astype(int)
+
         # Features básicas
         df['returns'] = df['close'].pct_change()
         df['log_returns'] = np.log(df['close'] / df['close'].shift(1))
@@ -205,25 +215,27 @@ class AggressiveOptimizer:
             n_jobs=-1
         )
         
-        # Grid Search
-        grid_search = GridSearchCV(
+        # Randomized Search
+        random_search = RandomizedSearchCV(
             estimator=xgb_model,
-            param_grid=param_grid,
+            param_distributions=param_grid,
+            n_iter=20,
             scoring=make_scorer(accuracy_score),
             cv=tscv,
             n_jobs=-1,
-            verbose=1
+            verbose=1,
+            random_state=42
         )
         
-        logger.info("🔍 Executando Grid Search (pode demorar)...")
-        grid_search.fit(X, y)
+        logger.info("🔍 Executando Randomized Search...")
+        random_search.fit(X, y)
         
-        logger.info(f"✅ Melhores parâmetros: {grid_search.best_params_}")
-        logger.info(f"✅ Melhor score: {grid_search.best_score_:.3f}")
+        logger.info(f"✅ Melhores parâmetros: {random_search.best_params_}")
+        logger.info(f"✅ Melhor score: {random_search.best_score_:.3f}")
         
         # Modelo com calibração de confiança
-        best_model = grid_search.best_estimator_
-        calibrated_model = CalibratedClassifierCV(best_model, method='sigmoid', cv='prefit')
+        best_model = random_search.best_estimator_
+        calibrated_model = CalibratedClassifierCV(best_model, method='sigmoid', cv=5)
         calibrated_model.fit(X, y)
         
         return calibrated_model

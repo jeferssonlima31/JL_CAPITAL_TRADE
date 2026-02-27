@@ -8,7 +8,7 @@ import MetaTrader5 as mt5
 import pandas as pd
 import numpy as np
 from integration_system import IntegrationSystem
-from turbo_feature_compatibility import TurboFeatureCompatibility
+from aggressive_feature_compatibility import AggressiveFeatureCompatibility
 import logging
 import time
 from datetime import datetime, timedelta
@@ -46,11 +46,17 @@ class AutoTradingSystem:
         self.stop_loss_pips = int(os.getenv('STOP_LOSS_PIPS', 50))
         self.take_profit_pips = int(os.getenv('TAKE_PROFIT_PIPS', 100))
         
-        # Símbolos para trading
-        self.symbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD']
+        # Símbolos para trading (Limitado a EURUSD conforme pedido)
+        self.symbols = ['EURUSD']
         
-        # Sistema de compatibilidade de features
-        self.feature_compat = TurboFeatureCompatibility()
+        # Sessões de Mercado (Horário de Portugal)
+        self.sessions = {
+            'LONDRES': {'start': 8, 'end': 17},
+            'EUA': {'start': 13, 'end': 22}
+        }
+        
+        # Sistema de compatibilidade de features (AGRESSIVO)
+        self.feature_compat = AggressiveFeatureCompatibility()
         
         # Features esperadas
         self.expected_features = [
@@ -109,7 +115,7 @@ class AutoTradingSystem:
         logger.info("✅ Sistema de ML carregado com sucesso!")
         return True
     
-    def get_market_data(self, symbol, timeframe=mt5.TIMEFRAME_H1, count=200):
+    def get_market_data(self, symbol, timeframe=mt5.TIMEFRAME_H1, count=500):
         """Obtém dados de mercado"""
         try:
             rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, count)
@@ -125,12 +131,12 @@ class AutoTradingSystem:
             return None
     
     def calculate_features(self, df):
-        """Calcula features para o modelo"""
-        if df is None or len(df) < 50:
+        """Calcula features para o modelo agressivo"""
+        if df is None or len(df) < 200:
             return None
         
-        # Usa o conversor de features para garantir compatibilidade
-        features_df = self.feature_compat.convert_to_turbo_format(df)
+        # Usa o conversor de features agressivo
+        features_df = self.feature_compat.convert_to_aggressive_format(df)
         
         if features_df is None or features_df.empty:
             return None
@@ -254,14 +260,43 @@ class AutoTradingSystem:
         
         return None
     
+    def is_market_open(self):
+        """Verifica se o mercado está em uma das sessões permitidas (Londres ou EUA)"""
+        now = datetime.now()
+        hour = now.hour
+        
+        # Verifica se é dia de semana (0=Segunda, 4=Sexta)
+        if now.weekday() > 4:
+            return False, "Final de semana"
+            
+        is_london = self.sessions['LONDRES']['start'] <= hour < self.sessions['LONDRES']['end']
+        is_usa = self.sessions['EUA']['start'] <= hour < self.sessions['EUA']['end']
+        
+        if is_london and is_usa:
+            return True, "Sobreposição Londres/EUA 🇬🇧🇺🇸"
+        elif is_london:
+            return True, "Sessão de Londres 🇬🇧"
+        elif is_usa:
+            return True, "Sessão dos EUA 🇺🇸"
+            
+        return False, "Fora das sessões operacionais"
+
     def run_trading_cycle(self):
         """Executa um ciclo completo de trading"""
         if not self.connected:
             return
+            
+        # Verifica horário de mercado
+        market_open, session_name = self.is_market_open()
         
         logger.info("\n" + "=" * 70)
         logger.info(f"🔄 CICLO DE TRADING - {datetime.now().strftime('%H:%M:%S')}")
+        logger.info(f"🌐 Status: {session_name}")
         logger.info("=" * 70)
+        
+        if not market_open:
+            logger.info(f"💤 {session_name}. Aguardando abertura das sessões...")
+            return 0
         
         signals = []
         
