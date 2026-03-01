@@ -221,7 +221,27 @@ class JLTradingBot:
             if predictions and 'ensemble' in predictions:
                 prob = predictions['ensemble'][0]
                 
-                # 5. Filtro de Contexto MTF
+                # 5. Filtro de Contexto M15 (Micro-Momentum)
+                m15_trend = mtf.get('m15_trend')
+                m15_rsi = mtf.get('m15_rsi', 50)
+                
+                if prob > 0.7:
+                    if m15_trend == "bearish":
+                        logger.info(f"⏳ Aguardando Pullback: COMPRA retida porque tendência M15 é de QUEDA.")
+                        return None
+                    if m15_rsi > 75:
+                        logger.info(f"⏳ Exaustão Curta: COMPRA retida porque M15 RSI={m15_rsi:.1f} (Sobrecomprado).")
+                        return None
+                        
+                if prob < 0.3:
+                    if m15_trend == "bullish":
+                        logger.info(f"⏳ Aguardando Pullback: VENDA retida porque tendência M15 é de ALTA.")
+                        return None
+                    if m15_rsi < 25:
+                        logger.info(f"⏳ Exaustão Curta: VENDA retida porque M15 RSI={m15_rsi:.1f} (Sobrevendido).")
+                        return None
+
+                # 6. Filtro Macro MTF (H4)
                 if prob > 0.7 and mtf.get('h4_trend') == "bearish":
                     if self.config.risk.strict_mtf_filter:
                         logger.warning(f"⚠️ Sinal IGNORADO (Filtro MTF): IA indica {prob:.1%} COMPRA, mas Tendência H4 é de QUEDA")

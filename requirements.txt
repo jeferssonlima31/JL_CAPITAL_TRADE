@@ -39,3 +39,7 @@ loguru
 # Utilities
 schedule
 python-dateutil
+
+# Interpretability & Stats
+shap
+scipy

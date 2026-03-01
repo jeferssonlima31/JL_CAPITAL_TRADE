@@ -145,14 +145,46 @@ class ContinuousLearner:
             self.learning_thread.join(timeout=5)
         logger.info("⏹️ Continuous Learning stopped")
     
+    def _run_daily_routines_with_retry(self):
+        """Garante que a rotina diária (PSI e Performance) execute pelo menos 1x ao dia (Retry-on-Startup)"""
+        today = datetime.now().strftime('%Y-%m-%d')
+        
+        # Garante diretório de backup
+        self.config.backup_dir.mkdir(parents=True, exist_ok=True)
+        marker_file = self.config.backup_dir / f"last_daily_run_{today}.txt"
+        
+        if not marker_file.exists():
+            logger.info(f"🔄 Executando rotinas diárias pendentes para {today} (PSI & Drift Check)...")
+            
+            # Tenta executar as subrotinas
+            self._evaluate_performance()
+            self._backup_models()
+            
+            # Limpa marcadores de dias anteriores
+            for old_file in self.config.backup_dir.glob("last_daily_run_*.txt"):
+                try:
+                    old_file.unlink()
+                except Exception:
+                    pass
+                    
+            # Registra sucesso de execução para hoje
+            try:
+                with open(marker_file, 'w') as f:
+                    f.write(datetime.now().isoformat())
+            except Exception as e:
+                logger.error(f"Falha ao salvar marcador diário: {e}")
+
     def _learning_loop(self):
         """Loop principal de aprendizado"""
+        
+        # Carga basal inicial
+        self._collect_training_data()
+        self._run_daily_routines_with_retry()
         
         # Agendamentos
         schedule.every(1).hours.do(self._collect_training_data)
         schedule.every(6).hours.do(self._retrain_models)
-        schedule.every(24).hours.do(self._evaluate_performance)
-        schedule.every(1).days.do(self._backup_models)
+        schedule.every(1).hours.do(self._run_daily_routines_with_retry) # Refaz check diario caso vire a meia noite
         
         while not self.stop_learning:
             try:
@@ -313,7 +345,55 @@ class ContinuousLearner:
         if recent_acc < hist_acc * 0.7:
             logger.warning(f"🚨 DEGRADAÇÃO DETECTADA: Acurácia recente ({recent_acc:.1%}) caiu >30% em relação à histórica ({hist_acc:.1%})")
             # Força retreino ou envia alerta
-    
+            
+        # 6. Monitoramento de Data Drift (Population Stability Index)
+        self._check_population_stability()
+            
+    def _calculate_psi(self, expected, actual, buckets=10):
+        """Calcula o Population Stability Index (PSI) entre duas distribuições"""
+        breakpoints = np.arange(0, buckets + 1) / buckets * 100
+        breakpoints = np.percentile(expected, breakpoints)
+        
+        expected_percents = np.histogram(expected, breakpoints)[0] / len(expected)
+        actual_percents = np.histogram(actual, breakpoints)[0] / len(actual)
+        
+        # Evita divisão por zero ou log(0)
+        expected_percents = np.where(expected_percents == 0, 0.0001, expected_percents)
+        actual_percents = np.where(actual_percents == 0, 0.0001, actual_percents)
+        
+        psi_value = np.sum((actual_percents - expected_percents) * np.log(actual_percents / expected_percents))
+        return psi_value
+        
+    def _check_population_stability(self):
+        """Monitora Drift de Dados usando o PSI na volatilidade do mercado"""
+        for symbol in self.config.trading_pairs:
+            train_data = self.training_data.get(symbol, [])
+            if len(train_data) < 2:
+                continue
+                
+            # Compara janela antiga (base/expected) com a nova (atual/actual)
+            expected_df = train_data[0]['features']
+            actual_df = train_data[-1]['features']
+            
+            # Avalia drift na feature de log returns ou volatilidade
+            target_col = 'returns' if 'returns' in expected_df.columns else 'close'
+            
+            if len(actual_df) > 50 and len(expected_df) > 50:
+                expected_dist = expected_df[target_col].fillna(0).values
+                actual_dist = actual_df[target_col].fillna(0).values
+                
+                try:
+                    psi = self._calculate_psi(expected_dist, actual_dist)
+                    logger.info(f"📊 {symbol} PSI ({target_col}): {psi:.4f}")
+                    
+                    if psi > 0.2:
+                        logger.critical(f"🛑 CRITICAL DATA DRIFT DETECTADO ({symbol}): PSI={psi:.4f}. O mercado mudou drasticamente (Nova Pandemia/Crash?). Retreino Urgente!")
+                    elif psi > 0.1:
+                        logger.warning(f"⚠️ Atenção {symbol}: PSI={psi:.4f}. Ligeiro drift estatístico.")
+                        
+                except Exception as e:
+                    logger.debug(f"Pular cálculo PSI para {symbol}: {e}")
+                    
     def _backup_models(self):
         """Backup dos modelos treinados"""
         backup_dir = self.config.backup_dir / datetime.now().strftime("%Y%m%d")

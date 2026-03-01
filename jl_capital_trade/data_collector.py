@@ -87,19 +87,27 @@ class DataCollector:
         }
 
     def get_mtf_context(self, symbol: str) -> Dict:
-        """Obtém contexto de múltiplos timeframes (H4 e D1)"""
+        """Obtém contexto de múltiplos timeframes (M15, H4 e D1) para refino do gatilho"""
         context = {}
         
-        # H4 para tendência principal
+        # 1. M15 para Momentum e Pullbacks curtíssimos
+        df_m15 = self.get_historical_data(symbol, "M15", 50)
+        if df_m15 is not None and not df_m15.empty:
+            context['m15_rsi'] = self._calculate_rsi(df_m15['close'], 14).iloc[-1]
+            m15_ema9 = df_m15['close'].ewm(span=9).mean().iloc[-1]
+            m15_ema21 = df_m15['close'].ewm(span=21).mean().iloc[-1]
+            context['m15_trend'] = "bullish" if m15_ema9 > m15_ema21 else "bearish"
+        
+        # 2. H4 para tendência principal Macro
         df_h4 = self.get_historical_data(symbol, "H4", 100)
-        if df_h4 is not None:
+        if df_h4 is not None and not df_h4.empty:
             ma_20 = df_h4['close'].rolling(20).mean().iloc[-1]
             current_price = df_h4['close'].iloc[-1]
             context['h4_trend'] = "bullish" if current_price > ma_20 else "bearish"
             
-        # D1 para suporte/resistência maior
+        # 3. D1 para suporte/resistência ou Exaustão
         df_d1 = self.get_historical_data(symbol, "D1", 50)
-        if df_d1 is not None:
+        if df_d1 is not None and not df_d1.empty:
             context['d1_rsi'] = self._calculate_rsi(df_d1['close'], 14).iloc[-1]
             
         return context

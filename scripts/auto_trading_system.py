@@ -37,10 +37,10 @@ class AutoTradingSystem:
         self.open_positions = []
         
         # Configurações do .env
-        self.mt5_login = int(os.getenv('MT5_LOGIN', 3263303))
-        self.mt5_password = os.getenv('MT5_PASSWORD', '!rH5UiSb')
-        self.mt5_server = os.getenv('MT5_SERVER', 'Just2Trade-MT5')
-        
+        self.mt5_login = int(os.getenv('MT5_LOGIN', '0'))
+        self.mt5_password = os.getenv('MT5_PASSWORD', '')
+        self.mt5_server = os.getenv('MT5_SERVER', 'Exness-MT5')
+        self.mt5_path = os.getenv('MT5_PATH', r'C:\Program Files\MetaTrader 5 EXNESS\terminal64.exe')
         self.risk_per_trade = float(os.getenv('RISK_PER_TRADE', 0.02))
         self.max_trades = int(os.getenv('MAX_TRADES', 5))
         self.stop_loss_pips = int(os.getenv('STOP_LOSS_PIPS', 50))

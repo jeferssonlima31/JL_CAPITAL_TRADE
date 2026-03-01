@@ -48,16 +48,18 @@ class AggressiveOptimizer:
     def connect_to_mt5(self):
         """Conecta ao MT5"""
         try:
-            if not mt5.initialize():
-                return False
-            
-            authorized = mt5.login(
-                login=int(os.getenv('MT5_LOGIN', 3263303)),
-                password=os.getenv('MT5_PASSWORD', '!rH5UiSb'),
-                server=os.getenv('MT5_SERVER', 'Just2Trade-MT5')
+            authorized = mt5.initialize(
+                path=os.getenv('MT5_PATH', r'C:\Program Files\MetaTrader 5 EXNESS\terminal64.exe'),
+                login=int(os.getenv('MT5_LOGIN', '0')),
+                password=os.getenv('MT5_PASSWORD', ''),
+                server=os.getenv('MT5_SERVER', 'Exness-MT5')
             )
             
-            return authorized
+            if authorized:
+                return authorized
+            else:
+                logger.error("Falha ao inicializar ou conectar ao MetaTrader 5.")
+                return False
                 
         except Exception as e:
             logger.error(f"Erro na conexão: {e}")
@@ -278,20 +280,38 @@ class AggressiveOptimizer:
         return best_model
     
     def select_robust_features(self, X, y):
-        """Seleciona as features mais robustas para evitar overfitting"""
-        logger.info("🔍 Selecionando features robustas...")
+        """Seleciona as features mais robustas (Controle de Overfitting via SHAP)"""
+        logger.info("🔍 Selecionando features robustas via SHAP...")
+        import shap
+        import xgboost as xgb
         
-        # Modelo base para seleção (ExtraTrees é excelente para isso)
-        selector_model = ExtraTreesClassifier(n_estimators=100, random_state=42)
+        # Modelo base leve e rápido para avaliar importâncias
+        selector_model = xgb.XGBClassifier(n_estimators=50, max_depth=3, random_state=42, n_jobs=-1)
+        selector_model.fit(X, y)
         
-        # Seleciona baseado em importância (threshold médio)
-        selector = SelectFromModel(selector_model, threshold="1.25*mean")
-        selector.fit(X, y)
+        # Calcula SHAP
+        explainer = shap.TreeExplainer(selector_model)
+        shap_values = explainer.shap_values(X)
         
-        selected_features = X.columns[selector.get_support()].tolist()
+        if isinstance(shap_values, list):
+            shap_values = shap_values[1] # Considera shap da classe 1 em binários
+            
+        feature_importance = np.abs(shap_values).mean(axis=0)
         
-        logger.info(f"✅ Redução de features: {len(X.columns)} -> {len(selected_features)}")
-        logger.info(f"📋 Features selecionadas: {selected_features}")
+        importance_df = pd.DataFrame({
+            'feature': X.columns,
+            'importance': feature_importance
+        }).sort_values('importance', ascending=False)
+        
+        # Isola o topo 15 das features
+        top_k = min(15, len(X.columns))
+        selected_features = importance_df[importance_df['importance'] > 0].head(top_k)['feature'].tolist()
+        
+        if len(selected_features) < 5:
+            selected_features = importance_df.head(10)['feature'].tolist()
+            
+        logger.info(f"✅ Redução de features via SHAP: {len(X.columns)} -> {len(selected_features)}")
+        logger.info(f"📋 SHAP Features selecionadas: {selected_features}")
         
         return selected_features
 

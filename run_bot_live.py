@@ -146,10 +146,10 @@ def main():
     print_banner()
 
     # ── Conecta MT5 ──────────────────────────────────────────────────────────
-    logger.info("🔗 Conectando ao Just2Trade MT5...")
+    logger.info("🔗 Conectando ao Exness MT5...")
     mt5 = MT5Connector(config)
     if not mt5.connect():
-        logger.error("❌ Falha na conexão MT5. Abra o terminal Just2Trade primeiro.")
+        logger.error("❌ Falha na conexão MT5. Abra o terminal Exness primeiro.")
         sys.exit(1)
 
     acc = mt5.get_account_info()
