@@ -20,20 +20,20 @@ class MT5ConnectorSimple:
     def connect(self) -> bool:
         """Conecta ao MetaTrader 5"""
         try:
-            if not mt5.initialize():
+            if hasattr(self.config, 'mt5') and hasattr(self.config.mt5, 'path'):
+                init_result = mt5.initialize(
+                    path=self.config.mt5.path,
+                    login=self.config.mt5.login,
+                    password=self.config.mt5.password,
+                    server=self.config.mt5.server
+                )
+            else:
+                # Fallback for old config structure if needed
+                init_result = mt5.initialize()
+                
+            if not init_result:
                 logger.error(f"Falha ao inicializar MT5: {mt5.last_error()}")
                 return False
-            
-            # Tenta login se credenciais estiverem disponíveis
-            if hasattr(self.config, 'mt5_login') and self.config.mt5_login:
-                authorized = mt5.login(
-                    login=self.config.mt5_login,
-                    password=self.config.mt5_password,
-                    server=self.config.mt5_server
-                )
-                if not authorized:
-                    logger.warning(f"Login MT5 falhou: {mt5.last_error()}")
-                    # Continua mesmo sem login - pode ser demo
             
             self.connected = True
             logger.info("✅ Conectado ao MetaTrader 5")

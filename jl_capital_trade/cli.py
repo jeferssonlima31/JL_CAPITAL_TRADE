@@ -5,6 +5,13 @@
 import argparse
 import logging
 import sys
+
+# Força UTF-8 para evitar UnicodeEncodeError no Windows
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8')
+
 from .trading_bot import JLTradingBot
 from .config import config
 
@@ -14,8 +21,8 @@ def setup_logging():
         level=config.log_level.value,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
-            logging.FileHandler(config.logs_dir / 'cli.log'),
-            logging.StreamHandler()
+            logging.FileHandler(config.logs_dir / 'cli.log', encoding='utf-8'),
+            logging.StreamHandler(sys.stdout)
         ]
     )
 

@@ -1,43 +1,41 @@
-# =============================================================================
+# 
 # JL CAPITAL TRADE - DEPENDÊNCIAS
-# =============================================================================
+# 
 
 # Core
-python-dotenv==1.0.0
-pydantic==2.5.0
+python-dotenv
+pydantic
 
 # Data Processing
-numpy==1.24.3
-pandas==2.0.3
+numpy
+pandas
 
 # Machine Learning
-scikit-learn==1.3.0
-xgboost==2.0.3
-tensorflow==2.13.0
-keras==2.13.1
+scikit-learn
+xgboost
 
 # Trading
-MetaTrader5==5.0.45
+MetaTrader5
 
 # Database & Cache
-redis==5.0.3
-psycopg2-binary==2.9.9
+redis
+psycopg2-binary
 
 # Security
-cryptography==41.0.7
-pyjwt==2.8.0
+cryptography
+pyjwt
 
 # API & Networking
-requests==2.31.0
-flask==2.3.3
-flask-cors==4.0.0
+requests
+flask
+flask-cors
 
 # Visualization
-matplotlib==3.7.2
+matplotlib
 
 # Monitoring & Logging
-loguru==0.7.2
+loguru
 
 # Utilities
-schedule==1.2.0
-python-dateutil==2.8.2
+schedule
+python-dateutil

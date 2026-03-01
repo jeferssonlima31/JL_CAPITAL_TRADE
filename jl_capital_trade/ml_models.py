@@ -58,14 +58,12 @@ class JLMLModels:
 
         # Scalers necessários para o MLP
         self.scalers: Dict[str, Optional[StandardScaler]] = {
-            'EUR_USD': None,
-            'XAU_USD': None
+            'EUR_USD': None
         }
 
         # Modelos Online (SGDClassifier)
         self.online_learners: Dict[str, Optional[SGDClassifier]] = {
-            'EUR_USD': self.create_online_learner(),
-            'XAU_USD': self.create_online_learner()
+            'EUR_USD': self.create_online_learner()
         }
 
         # Carrega modelos existentes

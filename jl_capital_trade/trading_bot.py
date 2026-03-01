@@ -152,12 +152,6 @@ class JLTradingBot:
                     if eurusd_signal and eurusd_signal['action'] != "HOLD":
                         self._execute_trade(eurusd_signal)
                 
-                # Analisa XAU/USD
-                if self.config.is_testing() or self._check_market_hours("XAU_USD"):
-                    xauusd_signal = self._analyze_pair("XAU_USD", "H1")
-                    if xauusd_signal and xauusd_signal['action'] != "HOLD":
-                        self._execute_trade(xauusd_signal)
-                
                 # Pausa entre análises
                 time.sleep(60)
                 
@@ -229,11 +223,18 @@ class JLTradingBot:
                 
                 # 5. Filtro de Contexto MTF
                 if prob > 0.7 and mtf.get('h4_trend') == "bearish":
-                    logger.warning(f"⚠️ Sinal de COMPRA ignorado: Tendência H4 é de QUEDA")
-                    return None
+                    if self.config.risk.strict_mtf_filter:
+                        logger.warning(f"⚠️ Sinal IGNORADO (Filtro MTF): IA indica {prob:.1%} COMPRA, mas Tendência H4 é de QUEDA")
+                        return None
+                    else:
+                        logger.info(f"⚡ Sinal PERMITIDO (MTF Strict=Off): IA indica {prob:.1%} COMPRA contra Tendência H4 de QUEDA")
+                        
                 if prob < 0.3 and mtf.get('h4_trend') == "bullish":
-                    logger.warning(f"⚠️ Sinal de VENDA ignorado: Tendência H4 é de ALTA")
-                    return None
+                    if self.config.risk.strict_mtf_filter:
+                        logger.warning(f"⚠️ Sinal IGNORADO (Filtro MTF): IA indica {(1-prob):.1%} VENDA, mas Tendência H4 é de ALTA")
+                        return None
+                    else:
+                        logger.info(f"⚡ Sinal PERMITIDO (MTF Strict=Off): IA indica {(1-prob):.1%} VENDA contra Tendência H4 de ALTA")
 
                 # 6. Gera sinal
                 signal = self._generate_signal(
@@ -481,8 +482,29 @@ class JLTradingBot:
             self._close_position(symbol, "Bot Shutdown", 0)
     
     def _update_performance(self):
-        """Atualiza métricas de performance"""
-        self.performance['last_update'] = datetime.now()
+        """Atualiza e loga performance em tempo real"""
+        now = datetime.now()
+        if (now - self.performance['last_update']).seconds >= 300: # Log a cada 5 min
+            account = self.mt5.get_account_info()
+            balance = account['balance'] if account else 0
+            
+            logger.info("\n" + "="*50)
+            logger.info("📈 RELATÓRIO DE PERFORMANCE EM TEMPO REAL")
+            logger.info("="*50)
+            logger.info(f"💰 Saldo Atual: ${balance:,.2f}")
+            logger.info(f"📊 Total Trades: {self.performance['total_trades']}")
+            logger.info(f"🎯 Win Rate: {(self.performance['winning_trades']/self.performance['total_trades']*100 if self.performance['total_trades'] > 0 else 0):.2f}%")
+            logger.info(f"💵 PnL Acumulado: ${self.performance['total_pnl']:,.2f}")
+            
+            # Posições Abertas
+            if self.positions:
+                logger.info("-" * 20)
+                logger.info("📂 Posições Abertas:")
+                for symbol, pos in self.positions.items():
+                    logger.info(f"  • {symbol}: {pos['action']} @ {pos['open_price']:.4f}")
+            
+            logger.info("="*50 + "\n")
+            self.performance['last_update'] = now
         
         if self.performance['total_trades'] > 0:
             win_rate = (self.performance['winning_trades'] / self.performance['total_trades']) * 100

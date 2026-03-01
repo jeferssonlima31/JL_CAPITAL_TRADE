@@ -90,8 +90,6 @@ class RiskConfig:
     max_drawdown: float = float(os.getenv("MAX_DRAWDOWN", "15.0"))
     default_sl_pips_eurusd: int = int(os.getenv("STOP_LOSS_PIPS", "30"))
     default_tp_pips_eurusd: int = int(os.getenv("TAKE_PROFIT_PIPS", "120"))
-    default_sl_pips_xauusd: int = int(os.getenv("SL_XAUUSD", "50"))
-    default_tp_pips_xauusd: int = int(os.getenv("TP_XAUUSD", "100"))
     use_trailing_stop: bool = os.getenv("USE_TRAILING_STOP", "false").lower() == "true"
     trailing_activation_pips: int = int(os.getenv("TRAILING_ACTIVATION", "15"))
     max_spread_pips: float = float(os.getenv("MAX_SPREAD_PIPS", "2.0"))
@@ -100,6 +98,8 @@ class RiskConfig:
     expected_slippage_pips: float = float(os.getenv("EXPECTED_SLIPPAGE_PIPS", "0.5"))
     max_slippage_pips: float = float(os.getenv("MAX_SLIPPAGE_PIPS", "1.5"))
     volatility_alert_threshold: float = float(os.getenv("VOLATILITY_ALERT", "2.5"))
+    
+    strict_mtf_filter: bool = os.getenv("STRICT_MTF_FILTER", "true").lower() == "true"
 
 @dataclass
 class MLConfig:
@@ -108,11 +108,6 @@ class MLConfig:
     eurusd_lookback: int = int(os.getenv("EURUSD_LOOKBACK", "60"))
     eurusd_prediction_horizon: int = int(os.getenv("EURUSD_HORIZON", "5"))
     eurusd_retrain_hours: int = int(os.getenv("EURUSD_RETRAIN", "24"))
-    
-    # XAU/USD
-    xauusd_lookback: int = int(os.getenv("XAUUSD_LOOKBACK", "80"))
-    xauusd_prediction_horizon: int = int(os.getenv("XAUUSD_HORIZON", "3"))
-    xauusd_retrain_hours: int = int(os.getenv("XAUUSD_RETRAIN", "12"))
     
     # Aprendizado Seguro
     min_samples_for_retrain: int = int(os.getenv("MIN_SAMPLES_RETRAIN", "500"))
@@ -178,7 +173,7 @@ class JLConfig:
         self.cache = CacheConfig()
         
         # Pares de trading
-        self.trading_pairs = ["EUR_USD", "XAU_USD"]
+        self.trading_pairs = ["EUR_USD"]
         
         # Timeframes
         self.timeframes = {

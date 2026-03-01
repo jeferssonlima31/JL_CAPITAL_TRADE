@@ -2,8 +2,14 @@ import sys
 import os
 import logging
 
+# Força UTF-8 para evitar UnicodeEncodeError no Windows
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8')
+
 # Configura logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, handlers=[logging.StreamHandler(sys.stdout)])
 
 # Adiciona diretório atual ao path
 sys.path.append('.')
@@ -12,11 +18,10 @@ print('Iniciando JL Capital Trading Bot...')
 
 try:
     from jl_capital_trade.trading_bot import JLTradingBot
-    from jl_capital_trade.config import Config
+    from jl_capital_trade.config import config
     
     print('✅ Módulos importados com sucesso')
     
-    config = Config()
     print('✅ Configuração carregada')
     
     bot = JLTradingBot()
@@ -26,12 +31,18 @@ try:
     # Vamos tentar iniciar o bot, mas em uma thread separada ou apenas conectar
     if bot.mt5.connect():
         print('✅ Bot conectado ao MT5!')
-        print('📊 Símbolos disponíveis:', len(bot.mt5.get_symbols()))
         
+        info = bot.mt5.get_account_info()
+        if info:
+            print(f"💰 Conta logada: {info['login']}")
+            print(f"💵 Saldo: ${info['balance']:.2f}")
+        else:
+            print("⚠️ Não foi possível obter as infos da conta.")
+
         # Coleta dados de teste
         print('🧪 Testando coleta de dados...')
-        symbol = 'EURUSD'
-        data = bot.data_collector.get_latest_data(symbol, timeframe='M1', n=10)
+        symbol = 'EUR_USD'
+        data = bot.data_collector.get_historical_data(symbol, timeframe='M1', count=10)
         if data is not None and not data.empty:
             print(f'✅ Dados coletados para {symbol}: {len(data)} candles')
             print(data.head())
