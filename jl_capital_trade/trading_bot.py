@@ -344,27 +344,35 @@ class JLTradingBot:
         if current_tick:
             current_spread = (current_tick['ask'] - current_tick['bid']) * 10000 if signal['symbol'] == "EUR_USD" else (current_tick['ask'] - current_tick['bid']) * 100
         
-        # Verifica risco e circuit breakers (agora com spread)
-        if not self.risk_manager.can_trade(signal['symbol'], current_spread=current_spread):
-            logger.warning("Risk or Circuit Breaker check failed")
-            return
-
-        # Obtém informações da conta
+        # 1. Obtém contexto histórico recente para simulação Monte Carlo (VaR)
+        df_history = self.data_collector.get_historical_data(signal['symbol'], "H1", 200)
+        historical_returns = df_history['close'].pct_change().dropna() if df_history is not None else None
+        
+        # 2. Obtém informações da conta para cálculo de exposição
         account_info = self.mt5.get_account_info()
         if not account_info:
             logger.error("Could not get account info")
             return
-        
-        # Calcula tamanho da posição
+            
+        balance = account_info['balance']
+
+        # 3. Calcula tamanho da posição proposto pela IA
         position_size = self.risk_manager.calculate_position_size(
             signal['symbol'],
             signal['price'],
             signal['atr'],
-            account_info['balance'],
+            balance,
             model_confidence=signal['confidence']
         )
         
-        # Aplica Slippage Realista ao preço de entrada (Simulação)
+        # 4. Verifica risco e circuit breakers + Value at Risk (VaR) Dinâmico
+        if not self.risk_manager.can_trade(signal['symbol'], current_spread=current_spread, 
+                                           historical_returns=historical_returns, 
+                                           proposed_volume=position_size, balance=balance):
+            logger.warning("Trade rejeitado pelo Gerenciador de Risco / VaR Engine")
+            return
+        
+        # 5. Aplica Slippage Realista ao preço de entrada (Simulação)
         slippage = (self.config.risk.expected_slippage_pips * 0.0001) if signal['symbol'] == "EUR_USD" else (self.config.risk.expected_slippage_pips * 0.01)
         entry_price = signal['price'] + slippage if signal['action'] == "BUY" else signal['price'] - slippage
         
@@ -450,6 +458,21 @@ class JLTradingBot:
                     self._close_position(symbol, "Take Profit", net_pnl)
                 elif position['action'] == "SELL" and current_price <= position['take_profit']:
                     self._close_position(symbol, "Take Profit", net_pnl)
+                    
+                # Monitoramento Ativo de VALUE AT RISK (VaR)
+                # Recalcula risco da posição a cada loop para ver se a volatilidade do mercado explodiu
+                df_history = self.data_collector.get_historical_data(symbol, "M15", 200)
+                if df_history is not None:
+                    returns = df_history['close'].pct_change().dropna()
+                    account = self.mt5.get_account_info()
+                    if account:
+                        var_result = self.risk_manager.var_engine.calculate_var(
+                            symbol, current_price, position['volume'], account['balance'], returns
+                        )
+                        # Se o VaR cruzar a linha crítica (mercado ficou caótico subitamente)
+                        if var_result and not var_result.is_safe:
+                            logger.critical(f"🚨 EMERGÊNCIA VaR: Volatilidade explodiu em {symbol}. Fechando posição para proteger capital!")
+                            self._close_position(symbol, "Emergência VaR (Risco Crítico)", net_pnl)
     
     def _close_position(self, symbol: str, reason: str, pnl: float):
         """Fecha posição"""

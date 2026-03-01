@@ -5,6 +5,7 @@
 from datetime import datetime, date
 import logging
 from typing import Dict, Optional
+from .var_engine import VaREngine
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,9 @@ class RiskManager:
         self.daily_pnl = 0
         self.last_update = datetime.now()
         self.positions_count = 0
+        
+        # Engine Isolada de Risco
+        self.var_engine = VaREngine(config)
         
         # Novos controles
         self.consecutive_losses = 0
@@ -67,22 +71,38 @@ class RiskManager:
 
         return True
 
-    def can_trade(self, symbol: str, current_spread: float = 0) -> bool:
-        """Verifica se pode fazer nova operação considerando circuit breakers"""
+    def can_trade(self, symbol: str, current_spread: float = 0, 
+                  historical_returns=None, proposed_volume: float = 0, balance: float = 0) -> bool:
+        """Verifica se pode fazer nova operação considerando circuit breakers e Motor VaR"""
         
+        # 1. Checa Circuit Breakers Tradicionais
         if not self.check_circuit_breakers(current_spread=current_spread):
             logger.warning(f"Trade bloqueado por Circuit Breaker: {self.breaker_reason}")
             return False
             
+        # 2. Avaliação de Value at Risk (VaR) Institucional via Monte Carlo
+        if historical_returns is not None and proposed_volume > 0 and balance > 0:
+            var_result = self.var_engine.calculate_var(
+                symbol, 
+                current_price=1.0, # Preço simulado irrelevante para PnL %
+                position_volume=proposed_volume, 
+                balance=balance, 
+                historical_returns=historical_returns
+            )
+            
+            if var_result and not var_result.is_safe:
+                self.breaker_reason = f"Projeção VaR Crítica: Risco Excede Limites"
+                return False
+            
         today = date.today().isoformat()
         
-        # 4. Verifica número de posições por símbolo
+        # 3. Verifica número de posições globais intra-diárias
         symbol_positions = self.daily_trades.get(symbol, {}).get(today, 0)
         if symbol_positions >= self.config.risk.max_positions:
             logger.warning(f"Max positions reached for {symbol}")
             return False
         
-        # 5. Verifica total de posições
+        # 4. Verifica total de posições
         if self.positions_count >= self.config.risk.max_positions:
             logger.warning(f"Max total positions reached: {self.positions_count}")
             return False

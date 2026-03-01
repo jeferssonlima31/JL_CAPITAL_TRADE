@@ -62,5 +62,32 @@ class TestRiskManager(unittest.TestCase):
         self.assertGreater(high_conf_size, base_size)
         self.assertLess(low_conf_size, base_size)
 
+    def test_var_engine_rejection(self):
+        """Testa se o motor de Value at Risk (Monte Carlo) bloqueia operações demasiadamente arriscadas."""
+        import pandas as pd
+        import numpy as np
+        
+        # Simulador de mercado em pânico (volatilidade extrema nas últimas 100 horas)
+        np.random.seed(42)
+        extreme_returns = pd.Series(np.random.normal(0, 0.02, 100)) # 2% por hora de variação
+        
+        # Teste 1: Posição gigantesca em mercado caótico (VaR deve estourar o limite de 5%)
+        # Exigindo alocação de 5 lotes (enorme) numa conta de 10.000
+        can_trade_reckless = self.risk_manager.can_trade(
+            "EUR_USD", current_spread=1.0, 
+            historical_returns=extreme_returns, 
+            proposed_volume=5.0, balance=10000.0
+        )
+        self.assertFalse(can_trade_reckless)
+        
+        # Teste 2: Posição pequena em mercado normal (VaR deve aprovar)
+        normal_returns = pd.Series(np.random.normal(0, 0.001, 100)) # Mercado calmo
+        can_trade_safe = self.risk_manager.can_trade(
+            "EUR_USD", current_spread=1.0, 
+            historical_returns=normal_returns, 
+            proposed_volume=0.1, balance=10000.0
+        )
+        self.assertTrue(can_trade_safe)
+
 if __name__ == '__main__':
     unittest.main()
