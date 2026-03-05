@@ -180,10 +180,7 @@ class DataCollector:
         ranges = pd.concat([high_low, high_close, low_close], axis=1)
         true_range = ranges.max(axis=1)
         
-        if symbol == "XAU_USD":
-            df['atr'] = true_range.rolling(window=20).mean()
-        else:
-            df['atr'] = true_range.rolling(window=14).mean()
+        df['atr'] = true_range.rolling(window=14).mean()
         
         # Volume
         df['volume_sma'] = df['volume'].rolling(window=20).mean()
@@ -248,18 +245,6 @@ class DataCollector:
                 result["is_optimal"] = True
             elif sessions["new_york"]["start"] <= current_hour < sessions["new_york"]["end"]:
                 result["current_session"] = "new_york"
-                result["is_optimal"] = True
-        
-        elif symbol == "XAU_USD":
-            # OURO tem melhor liquidez em Londres e NY
-            if sessions["london"]["start"] <= current_hour < sessions["london"]["end"]:
-                result["current_session"] = "london"
-                result["is_optimal"] = True
-            elif sessions["new_york"]["start"] <= current_hour < sessions["new_york"]["end"]:
-                result["current_session"] = "new_york"
-                result["is_optimal"] = True
-            elif sessions["overlap"]["start"] <= current_hour < sessions["overlap"]["end"]:
-                result["current_session"] = "overlap"
                 result["is_optimal"] = True
         
         return result

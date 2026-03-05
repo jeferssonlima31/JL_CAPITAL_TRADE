@@ -55,6 +55,9 @@ class CacheManager:
     
     def get(self, key: str, **kwargs) -> Optional[Any]:
         """Obtém item do cache"""
+        if not self.config.cache.enabled:
+            return None
+            
         cache_key = self._generate_key(key, **kwargs)
         
         # Tenta Redis primeiro
@@ -102,6 +105,9 @@ class CacheManager:
     
     def set(self, value: Any, key: str, ttl: int = 3600, **kwargs):
         """Armazena item no cache"""
+        if not self.config.cache.enabled:
+            return
+            
         cache_key = self._generate_key(key, **kwargs)
         timestamp = datetime.now() + timedelta(seconds=ttl)
         

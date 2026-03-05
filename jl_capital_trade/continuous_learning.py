@@ -115,8 +115,7 @@ class ContinuousLearner:
         
         # Banco de dados de treinamento
         self.training_data = {
-            'EUR_USD': [],
-            'XAU_USD': []
+            'EUR_USD': []
         }
         
         # Thread de aprendizado

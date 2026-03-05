@@ -140,8 +140,8 @@ class MT5Connector:
             "MN1": mt5.TIMEFRAME_MN1
         }
         
-        # Converte símbolo para formato MT5
-        mt5_symbol = symbol.replace("_", "")
+        # Converte símbolo para formato MT5 e adiciona sufixo
+        mt5_symbol = symbol.replace("_", "") + self.config.mt5.suffix
         
         try:
             rates = mt5.copy_rates_from_pos(mt5_symbol, tf_map[timeframe], 0, count)
@@ -173,7 +173,7 @@ class MT5Connector:
         if not self.connected:
             return None
         
-        mt5_symbol = symbol.replace("_", "")
+        mt5_symbol = symbol.replace("_", "") + self.config.mt5.suffix
         tick = mt5.symbol_info_tick(mt5_symbol)
         
         if tick:
@@ -185,7 +185,7 @@ class MT5Connector:
         if not self.connected:
             return 999
         
-        mt5_symbol = symbol.replace("_", "")
+        mt5_symbol = symbol.replace("_", "") + self.config.mt5.suffix
         info = mt5.symbol_info(mt5_symbol)
         
         if info:
@@ -198,7 +198,7 @@ class MT5Connector:
             return {'success': False, 'error': 'MT5 not connected'}
         
         try:
-            mt5_symbol = order['symbol'].replace("_", "")
+            mt5_symbol = order['symbol'].replace("_", "") + self.config.mt5.suffix
             
             # 1. Verificação Interna de Spread (Proteção de Última Milha)
             tick = mt5.symbol_info_tick(mt5_symbol)
@@ -210,22 +210,35 @@ class MT5Connector:
                     logger.warning(f"❌ Order Cancelled: Spread too high ({spread:.1f} > {max_allowed_spread})")
                     return {'success': False, 'error': f'High spread: {spread:.1f}'}
 
-            # 2. Prepara request
+            info = mt5.symbol_info(mt5_symbol)
+            digits = info.digits if info else 5
+
+            # 2. Prepara request e usa preço do tick exato para Market Orders
             order_type = mt5.ORDER_TYPE_BUY if order['type'] == 'BUY' else mt5.ORDER_TYPE_SELL
             
+            # Para ordens a mercado, usar bid/ask do momento
+            exact_price = tick.ask if order_type == mt5.ORDER_TYPE_BUY else tick.bid
+            
+            # Garante que o volume tenha max 2 casas decimais e obedeça step 0.01
+            vol = max(0.01, round(float(order['volume']), 2))
+            
+            price = round(exact_price, digits)
+            sl = round(float(order.get('stop_loss', 0)), digits) if order.get('stop_loss') else 0.0
+            tp = round(float(order.get('take_profit', 0)), digits) if order.get('take_profit') else 0.0
+
             request = {
                 "action": mt5.TRADE_ACTION_DEAL,
                 "symbol": mt5_symbol,
-                "volume": order['volume'],
+                "volume": vol,
                 "type": order_type,
-                "price": order['price'],
-                "sl": order.get('stop_loss', 0),
-                "tp": order.get('take_profit', 0),
+                "price": price,
+                "sl": sl,
+                "tp": tp,
                 "deviation": 10, # 10 points slippage tolerance
                 "magic": 234000,
                 "comment": order.get('comment', 'JL_Capital'),
                 "type_time": mt5.ORDER_TIME_GTC,
-                "type_filling": mt5.ORDER_FILLING_IOC,
+                "type_filling": mt5.ORDER_FILLING_IOC, # Fallback para IOC que usualmente funciona melhor para EURUSDm Exness
             }
             
             # 3. Envia ordem

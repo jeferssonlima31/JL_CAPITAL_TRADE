@@ -211,7 +211,7 @@ class JLTradingBot:
             return None
             
         # Cria sequência para previsão
-        lookback = 200 if "aggressive" in self.ml_models.get_model_list(symbol) else (self.config.ml.eurusd_lookback if symbol == "EUR_USD" else self.config.ml.xauusd_lookback)
+        lookback = 200 if "aggressive" in self.ml_models.get_model_list(symbol) else self.config.ml.eurusd_lookback
         
         if len(features) >= lookback:
             X_pred = features[-lookback:].reshape(1, lookback, features.shape[1])
@@ -219,7 +219,8 @@ class JLTradingBot:
             predictions = self.ml_models.predict_ensemble(symbol, X_pred, regime=regime['regime'])
             
             if predictions and 'ensemble' in predictions:
-                prob = predictions['ensemble'][0]
+                ens_val = predictions.get('ensemble', 0.5)
+                prob = float(ens_val[0] if isinstance(ens_val, (list, np.ndarray)) else ens_val)
                 
                 # 5. Filtro de Contexto M15 (Micro-Momentum)
                 m15_trend = mtf.get('m15_trend')
@@ -562,7 +563,7 @@ class JLTradingBot:
             'performance': self.performance,
             'risk': self.risk_manager.get_status(),
             'mt5_connected': self.mt5.is_connected(),
-            'models_loaded': len(self.ml_models.models['EUR_USD']) + len(self.ml_models.models['XAU_USD']),
+            'models_loaded': len(self.ml_models.models['EUR_USD']),
             'cache_stats': self.cache.get_stats()
         }
     

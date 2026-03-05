@@ -2,7 +2,7 @@
 
 module.exports = {
   name: 'jl-capital-trade',
-  description: 'JL Capital Trade - Forex ML Bot (EUR/USD & XAU/USD)',
+  description: 'JL Capital Trade - Forex ML Bot (EUR/USD)',
   version: '2.0.0',
   author: 'JL Capital',
   
@@ -17,7 +17,7 @@ module.exports = {
   commands: [
     {
       name: 'analyze',
-      description: 'Analisar par (EUR/USD ou XAU/USD)',
+      description: 'Analisar par (EUR/USD)',
       usage: '/jl analyze --pair EUR_USD --timeframe H1',
       handler: 'handleAnalyze'
     },
@@ -59,8 +59,8 @@ module.exports = {
       const { pair = 'EUR_USD', timeframe = 'H1' } = args;
       
       // Valida par
-      if (!['EUR_USD', 'XAU_USD'].includes(pair)) {
-        return { error: 'Par inválido. Use EUR_USD ou XAU_USD' };
+      if (!['EUR_USD'].includes(pair)) {
+        return { error: 'Par inválido. Use EUR_USD' };
       }
       
       // Chama API
@@ -102,7 +102,7 @@ module.exports = {
         return { error: 'Ação inválida. Use BUY ou SELL' };
       }
       
-      if (!symbol || !['EUR_USD', 'XAU_USD'].includes(symbol)) {
+      if (!symbol || !['EUR_USD'].includes(symbol)) {
         return { error: 'Símbolo inválido' };
       }
       

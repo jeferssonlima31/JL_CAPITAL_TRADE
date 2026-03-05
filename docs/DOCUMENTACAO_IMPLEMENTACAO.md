@@ -46,7 +46,7 @@ JL_CAPITAL_TRADE/
 - **Arquivo**: `collect_training_data.py`
 - **Funcionalidades**:
   - Conexão automática com MT5
-  - Coleta histórica de dados (EURUSD, GBPUSD, USDJPY, XAUUSD)
+  - Coleta histórica de dados (EURUSD, GBPUSD, USDJPY)
   - Cálculo de indicadores técnicos (RSI, MACD, Bollinger Bands, etc.)
   - Salvamento em Parquet/CSV
 

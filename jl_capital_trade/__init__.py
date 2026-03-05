@@ -4,7 +4,7 @@ JL Capital Trade - Professional Forex Trading System
 Sistema profissional de trading Forex com Machine Learning e aprendizado contínuo.
 
 Este pacote implementa:
-- Trading automatizado para EUR/USD e XAU/USD
+- Trading automatizado para EUR/USD
 - Múltiplos modelos de ML (XGBoost, LSTM, Ensemble)
 - Aprendizado contínuo com feedback loop
 - Segurança em múltiplas camadas

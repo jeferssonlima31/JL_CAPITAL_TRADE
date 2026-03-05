@@ -67,6 +67,7 @@ class MT5Config:
     server: str = os.getenv("MT5_SERVER", "MetaQuotes-Demo")
     path: str = os.getenv("MT5_PATH", "C:\\Program Files\\MetaTrader 5\\terminal64.exe")
     timeout: int = int(os.getenv("MT5_TIMEOUT", "30000"))
+    suffix: str = os.getenv("MT5_SYMBOL_SUFFIX", "m")
     
     def validate(self) -> bool:
         """Valida configurações MT5"""
@@ -83,11 +84,12 @@ class OANDAConfig:
 @dataclass
 class RiskConfig:
     """Configurações de gerenciamento de risco"""
-    max_risk_per_trade: float = float(os.getenv("RISK_PER_TRADE", "1.5"))
-    max_daily_loss: float = float(os.getenv("MAX_DAILY_LOSS", "5.0"))
+    max_virtual_balance: float = float(os.getenv("MAX_VIRTUAL_BALANCE", "500.0"))
+    max_risk_per_trade: float = float(os.getenv("RISK_PER_TRADE", "1.0"))
+    max_daily_loss: float = float(os.getenv("MAX_DAILY_LOSS", "15.0"))
     max_positions: int = int(os.getenv("MAX_POSITIONS", "3"))
     max_consecutive_losses: int = int(os.getenv("MAX_CONSECUTIVE_LOSSES", "3"))
-    max_drawdown: float = float(os.getenv("MAX_DRAWDOWN", "15.0"))
+    max_drawdown: float = float(os.getenv("MAX_DRAWDOWN", "5.0"))
     default_sl_pips_eurusd: int = int(os.getenv("STOP_LOSS_PIPS", "30"))
     default_tp_pips_eurusd: int = int(os.getenv("TAKE_PROFIT_PIPS", "120"))
     use_trailing_stop: bool = os.getenv("USE_TRAILING_STOP", "false").lower() == "true"

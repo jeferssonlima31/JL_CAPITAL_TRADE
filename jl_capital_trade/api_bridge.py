@@ -36,7 +36,7 @@ def analyze():
         timeframe = data.get('timeframe', 'H1')
         
         # Valida entrada
-        if pair not in ['EUR_USD', 'XAU_USD']:
+        if pair not in ['EUR_USD']:
             return jsonify({'error': 'Par inválido'}), 400
         
         if not bot:
@@ -117,7 +117,6 @@ def models():
         
         return jsonify({
             'eur_usd': bot.ml_models.get_model_list('EUR_USD'),
-            'xau_usd': bot.ml_models.get_model_list('XAU_USD'),
             'weights': bot.continuous_learner.tracker.get_model_weights() if bot.continuous_learner else {}
         })
         

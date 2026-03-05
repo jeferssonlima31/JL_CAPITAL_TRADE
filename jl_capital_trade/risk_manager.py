@@ -130,13 +130,15 @@ class RiskManager:
         if self.current_drawdown > 10.0:
             risk_percent *= 0.5
             
-        # Valor final em risco
-        risk_amount = account_balance * (risk_percent / 100)
+        # Valor final em risco (Trava para Bancas Pequenas como $500 independentemente do Demo)
+        effective_balance = min(account_balance, getattr(self.config.risk, 'max_virtual_balance', 500.0))
+        risk_amount = effective_balance * (risk_percent / 100)
         
         # Distância do stop loss dinâmico (2.5x ATR)
         sl_distance = atr * 2.5
         
-        if symbol == "EUR_USD":
+        # Correção Crítica Exness: O símbolo pode vir como 'EURUSDm' em vez de só 'EUR_USD'
+        if "EUR" in symbol and "USD" in symbol:
             pip_value = 10  # Standard Lot
             # Converte distância de preço para pips
             sl_pips = sl_distance * 10000
@@ -158,14 +160,15 @@ class RiskManager:
     
     def _is_cent_account(self) -> bool:
         """Verifica se é conta cent (Exness)"""
-        # Implementar detecção automática se possível
-        return True  # Por padrão, assume conta cent para segurança
+        # Desativado: Conta Padrão Exclui a Necessidade de Multiplicar LOTS 100x
+        return False
     
     def _round_to_standard_lot(self, size: float) -> float:
         """Arredonda para tamanhos de lote padronizados"""
         
         if size < 0.01:
-            return 0.01  # Micro lote
+            logger.warning(f"Position size {size:.4f} is too small for current risk limit. Returning 0.0 to block trade.")
+            return 0.0  # Retorna 0.0 para bloquear o trade ao invés de forçar 0.01
         elif size < 0.1:
             return round(size * 100) / 100  # 0.01 increments
         elif size < 1:

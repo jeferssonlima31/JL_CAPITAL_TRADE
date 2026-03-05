@@ -49,8 +49,7 @@ class JLMLModels:
 
         # Cache de modelos em memória
         self.models: Dict[str, Dict] = {
-            'EUR_USD': {},
-            'XAU_USD': {}
+            'EUR_USD': {}
         }
 
         # Versões dos modelos
@@ -89,7 +88,7 @@ class JLMLModels:
             except Exception as e:
                 logger.error(f"Erro ao carregar {model_file}: {e}")
 
-        for symbol in ['EUR_USD', 'XAU_USD']:
+        for symbol in ['EUR_USD']:
             symbol_dir = self.models_dir / symbol
             if not symbol_dir.exists():
                 continue
@@ -158,9 +157,9 @@ class JLMLModels:
         
         # Se for o modelo agressivo, usamos o AggressiveFeatureCompatibility
         try:
-            from aggressive_feature_compatibility import AggressiveFeatureCompatibility
+            from .aggressive_feature_compatibility import AggressiveFeatureCompatibility
             compat = AggressiveFeatureCompatibility()
-            # O conversor agressivo já retorna o formato correto (1, 43)
+            # O conversor agressivo já retorna o formato correto (1, 15)
             # Mas aqui o sistema espera o histórico completo para o lookback
             # Vamos calcular as features para o df inteiro
             
@@ -336,13 +335,9 @@ class JLMLModels:
                     expected = model.n_features_in_
                     if expected == X_single_bar.shape[1]:
                         X_input = X_single_bar
-                    elif expected == 6 and X_single_bar.shape[1] == 43:
-                        # Caso especial: modelo robusto (6) com entrada completa (43)
-                        # As features robustas estão em posições específicas
-                        from aggressive_feature_compatibility import AggressiveFeatureCompatibility
-                        compat = AggressiveFeatureCompatibility()
-                        robust_indices = [compat.all_features.index(f) for f in compat.robust_features]
-                        X_input = X_single_bar[:, robust_indices]
+                    elif expected == 15 and X_single_bar.shape[1] == 15:
+                        # Caso especial: modelo com entrada requerida de exatos 15
+                        X_input = X_single_bar
                     else:
                         X_input = X_flattened
                 elif "aggressive" in name.lower():
@@ -351,7 +346,7 @@ class JLMLModels:
                     X_input = X_flattened
 
                 # Aplicar scaler se existir
-                if (name in ('mlp', 'mlp_eurusd', 'mlp_xauusd') or "aggressive" in name) and self.scalers.get(symbol):
+                if (name in ('mlp', 'mlp_eurusd') or "aggressive" in name) and self.scalers.get(symbol):
                     if "aggressive" in name:
                         for scaler_file in self.models_dir.glob("scaler_aggressive_*.pkl"):
                             try:
@@ -401,14 +396,59 @@ class JLMLModels:
             except:
                 pass
 
-        # 3. Calcula Média Ponderada (Ensemble)
+        # 3. Integração do Multi-Agent Consensus System
+        buy_votes = 0
+        sell_votes = 0
+        total_voters = 0
+        voters_details = {}
+
+        for name, p in results.items():
+            prob = float(p[0] if isinstance(p, np.ndarray) else p)
+            vote = "HOLD"
+            if prob > 0.65:
+                buy_votes += 1
+                vote = "BUY"
+            elif prob < 0.35:
+                sell_votes += 1
+                vote = "SELL"
+
+            total_voters += 1
+            voters_details[name] = {"prob": prob, "vote": vote}
+
+        consensus_action = "HOLD"
+        consensus_confidence = 0.0
+        is_unanimous = False
+
+        if total_voters > 0:
+            if buy_votes == total_voters:
+                consensus_action = "BUY"
+                is_unanimous = True
+            elif sell_votes == total_voters:
+                consensus_action = "SELL"
+                is_unanimous = True
+            elif buy_votes >= 2 and buy_votes > sell_votes:
+                consensus_action = "BUY"
+            elif sell_votes >= 2 and sell_votes > buy_votes:
+                consensus_action = "SELL"
+
+        # Tenta calcular a probabilidade agregada clássica como fallback matemático
+        ensemble_prob = 0.5
         if probs:
             probs_arr = np.array(probs)
             weights_arr = np.array(weights_list)
             if weights_arr.sum() > 0:
                 weights_arr = weights_arr / weights_arr.sum()
                 ensemble_prob = np.average(probs_arr, axis=0, weights=weights_arr)
-                results['ensemble'] = ensemble_prob
+                
+        results['ensemble'] = ensemble_prob
+        results['consensus'] = {
+            "action": consensus_action,
+            "unanimous": is_unanimous,
+            "buy_votes": buy_votes,
+            "sell_votes": sell_votes,
+            "total_voters": total_voters,
+            "details": voters_details
+        }
             
         return results
 
